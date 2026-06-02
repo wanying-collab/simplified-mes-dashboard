@@ -71,6 +71,7 @@ DW-810｜CNC線割機
     validRecords: [],
     invalidRecords: [],
     searchTerm: "",
+    productFlowSearchTerm: "",
     selectedOperator: "",
     machineMaster: loadMachineMaster(),
     statusFilter: "all",
@@ -136,9 +137,17 @@ DW-810｜CNC線割機
   bindEvents();
   renderAll();
 
-    function renderShell() {
+  function renderShell() {
     root.innerHTML = `
-      <div class="mes-shell">
+      <div class="mes-page-layout" id="mesTopAnchor">
+        <button id="navToggleBtn" class="mobile-nav-toggle" type="button">☰ MES分析目錄</button>
+        <aside class="mes-sidebar" id="mesSidebar">
+          <div class="mes-sidebar-card">
+            <div class="mes-sidebar-title">📊 MES分析目錄</div>
+            <nav class="mes-sidebar-nav" id="analysisDirectoryNav"></nav>
+          </div>
+        </aside>
+        <div class="mes-shell">
         <section class="hero-panel">
           <div class="hero-top">
             <div>
@@ -289,7 +298,7 @@ DW-810｜CNC線割機
           </section>
         </div>
 
-        <section class="panel section-block">
+        <section class="panel section-block" id="kpi-overview">
           <div class="section-title">
             <div>
               <h3>資料摘要</h3>
@@ -300,7 +309,7 @@ DW-810｜CNC線割機
           <div id="messageBox" class="message-box" style="display:none"></div>
         </section>
 
-        <section class="panel section-block">
+        <section class="panel section-block" id="workorder-analysis">
           <div class="section-title">
             <div>
               <h3>製令單流程表</h3>
@@ -310,7 +319,7 @@ DW-810｜CNC線割機
           <div id="flowTable"></div>
         </section>
 
-        <section class="panel section-block">
+        <section class="panel section-block" id="standard-time-analysis">
           <div class="section-title">
             <div>
               <h3>品名規格標準工時表</h3>
@@ -320,7 +329,7 @@ DW-810｜CNC線割機
           <div id="standardTable"></div>
         </section>
 
-        <section class="panel section-block">
+        <section class="panel section-block" id="schedule-estimation">
           <div class="section-title">
             <div>
               <h3>排程預估表</h3>
@@ -330,7 +339,7 @@ DW-810｜CNC線割機
           <div id="scheduleTable"></div>
         </section>
 
-        <section class="panel section-block">
+        <section class="panel section-block" id="waiting-analysis">
           <div class="section-title">
             <div>
               <h3>等待時間與機台利用率分析</h3>
@@ -340,7 +349,7 @@ DW-810｜CNC線割機
           <div id="waitingAnalytics"></div>
         </section>
 
-        <section class="panel section-block">
+        <section class="panel section-block" id="machine-utilization">
           <div class="section-title">
             <div>
               <h3>機台使用率分析</h3>
@@ -350,7 +359,7 @@ DW-810｜CNC線割機
           <div id="machineUsageSection"></div>
         </section>
 
-        <section class="panel section-block">
+        <section class="panel section-block" id="comparison-analysis">
           <div class="section-title">
             <div>
               <h3>相同品名規格工時比較</h3>
@@ -360,7 +369,33 @@ DW-810｜CNC線割機
           <div id="comparisonSection"></div>
         </section>
 
-        <section class="panel section-block">
+        <section class="panel section-block" id="product-analysis">
+          <div class="section-title">
+            <div>
+              <h3>品名規格流程分析表</h3>
+              <p>依相同品名規格的歷史製令單，自動產生動態機台欄位、跨機台等待欄位、總工時、總等待時間、Lead Time 與總時間(含寬放1.3)。</p>
+            </div>
+          </div>
+          <div class="search-grid">
+            <div class="search-box">
+              <label for="productFlowSearchInput">搜尋品名規格 / 製令單號</label>
+              <div class="search-input-row">
+                <input id="productFlowSearchInput" class="search-input" type="text" placeholder="搜尋品名規格、製令單號..." />
+                <button id="clearProductFlowSearchBtn" class="btn-secondary" type="button">清除搜尋</button>
+              </div>
+            </div>
+            <div class="search-box">
+              <label>分析匯出</label>
+              <div class="export-row compact-export-row">
+                <button id="exportProductFlowBtn" class="btn-primary" type="button">匯出流程分析</button>
+              </div>
+            </div>
+          </div>
+          <div id="productFlowAnalysisNote" class="filter-result-note"></div>
+          <div id="productFlowAnalysisSection"></div>
+        </section>
+
+        <section class="panel section-block" id="operator-analysis">
           <div class="section-title">
             <div>
               <h3>品名規格 × 人員分析</h3>
@@ -389,6 +424,8 @@ DW-810｜CNC線割機
           </div>
           <div id="operatorDetailSection"></div>
         </section>
+        </div>
+        <button id="backToTopBtn" class="back-to-top-btn" type="button">⬆ 回到頂端</button>
       </div>
     `;
   }
@@ -400,6 +437,8 @@ DW-810｜CNC線割機
     const pasteInput = document.getElementById("pasteInput");
     const searchInput = document.getElementById("searchInput");
     const clearSearchBtn = document.getElementById("clearSearchBtn");
+    const productFlowSearchInput = document.getElementById("productFlowSearchInput");
+    const clearProductFlowSearchBtn = document.getElementById("clearProductFlowSearchBtn");
     const applyRangeBtn = document.getElementById("applyRangeBtn");
     const clearRangeBtn = document.getElementById("clearRangeBtn");
     const rangeStartInput = document.getElementById("rangeStartInput");
@@ -407,6 +446,10 @@ DW-810｜CNC線割機
     const shiftHoursSelect = document.getElementById("shiftHoursSelect");
     const excludeHolidayToggle = document.getElementById("excludeHolidayToggle");
     const partSummaryToggle = document.getElementById("partSummaryToggle");
+    const navToggleBtn = document.getElementById("navToggleBtn");
+    const mesSidebar = document.getElementById("mesSidebar");
+    const analysisDirectoryNav = document.getElementById("analysisDirectoryNav");
+    const backToTopBtn = document.getElementById("backToTopBtn");
 
     shiftHoursSelect.value = String(state.utilizationConfig.dailyHours);
     excludeHolidayToggle.checked = !!state.utilizationConfig.excludeHolidays;
@@ -463,6 +506,18 @@ DW-810｜CNC線割機
       searchInput.focus();
     });
 
+    productFlowSearchInput.addEventListener("input", (event) => {
+      state.productFlowSearchTerm = event.target.value || "";
+      renderAll();
+    });
+
+    clearProductFlowSearchBtn.addEventListener("click", () => {
+      state.productFlowSearchTerm = "";
+      productFlowSearchInput.value = "";
+      renderAll();
+      productFlowSearchInput.focus();
+    });
+
     Array.from(document.querySelectorAll("[data-status-filter]")).forEach((button) => {
       button.addEventListener("click", () => {
         state.statusFilter = button.dataset.statusFilter || "all";
@@ -508,6 +563,7 @@ DW-810｜CNC線割機
     document.getElementById("exportSecondHalfBtn").addEventListener("click", () => exportRangeReport("secondHalf"));
     document.getElementById("exportFullBtn").addEventListener("click", () => exportRangeReport("all"));
     document.getElementById("exportAllAnalysisBtn").addEventListener("click", () => exportAllAnalysisReport());
+    document.getElementById("exportProductFlowBtn").addEventListener("click", () => exportProductFlowReport());
 
     shiftHoursSelect.addEventListener("change", (event) => {
       state.utilizationConfig.dailyHours = Number(event.target.value || DEFAULT_MACHINE_AVAILABLE_HOURS);
@@ -524,6 +580,42 @@ DW-810｜CNC線割機
     partSummaryToggle.addEventListener("change", (event) => {
       state.partSummaryEnabled = !!event.target.checked;
     });
+
+    if (navToggleBtn && mesSidebar) {
+      navToggleBtn.addEventListener("click", () => {
+        mesSidebar.classList.toggle("is-open");
+      });
+    }
+
+    if (backToTopBtn) {
+      backToTopBtn.addEventListener("click", () => {
+        const topAnchor = document.getElementById("mesTopAnchor");
+        if (topAnchor) {
+          topAnchor.scrollIntoView({ behavior: "smooth", block: "start" });
+        } else {
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        }
+      });
+    }
+
+    if (analysisDirectoryNav) {
+      analysisDirectoryNav.addEventListener("click", (event) => {
+        const button = event.target instanceof Element ? event.target.closest("[data-nav-target]") : null;
+        if (!button) {
+          return;
+        }
+        const targetId = button.getAttribute("data-nav-target");
+        const targetSection = targetId ? document.getElementById(targetId) : null;
+        if (targetSection) {
+          targetSection.scrollIntoView({ behavior: "smooth", block: "start" });
+          if (mesSidebar) {
+            mesSidebar.classList.remove("is-open");
+          }
+        }
+      });
+    }
+
+    setupSectionNavigation();
 
     root.addEventListener("click", (event) => {
       const target = event.target;
@@ -553,6 +645,101 @@ DW-810｜CNC線割機
       }
       exportWorkOrderDetailReport(workOrderNo);
     });
+  }
+
+  function buildAnalysisDirectory() {
+    const navContainer = document.getElementById("analysisDirectoryNav");
+    if (!navContainer) {
+      return [];
+    }
+
+    const headings = Array.from(document.querySelectorAll(".mes-shell h2, .mes-shell h3")).filter((heading) => cleanString(heading.textContent));
+    const usedIds = new Set();
+
+    const items = headings.map((heading, index) => {
+      const label = cleanString(heading.textContent);
+      let targetId = cleanString(heading.id);
+      if (!targetId || usedIds.has(targetId)) {
+        targetId = `analysis-heading-${index + 1}`;
+        heading.id = targetId;
+      }
+      usedIds.add(targetId);
+      heading.classList.add("analysis-heading-anchor");
+      heading.dataset.analysisNavLevel = heading.tagName.toLowerCase();
+      return {
+        heading,
+        label,
+        targetId,
+        level: heading.tagName.toLowerCase(),
+      };
+    });
+
+    navContainer.innerHTML = items
+      .map(
+        (item) => `
+          <button class="mes-nav-link level-${item.level}" type="button" data-nav-target="${escapeHtml(item.targetId)}">
+            ${escapeHtml(item.label)}
+          </button>
+        `
+      )
+      .join("");
+
+    const navLinks = Array.from(navContainer.querySelectorAll("[data-nav-target]"));
+    return items.map((item, index) => ({
+      link: navLinks[index] || null,
+      section: item.heading,
+    }));
+  }
+
+  function setupSectionNavigation() {
+    const sections = buildAnalysisDirectory().filter((item) => item.link && item.section);
+
+    if (!sections.length) {
+      return;
+    }
+
+    const navLinks = sections.map((item) => item.link);
+
+    const setActive = (targetId) => {
+      navLinks.forEach((link) => {
+        link.classList.toggle("is-active", link.getAttribute("data-nav-target") === targetId);
+      });
+    };
+
+    if ("IntersectionObserver" in window) {
+      const observer = new IntersectionObserver(
+        (entries) => {
+          const visible = entries
+            .filter((entry) => entry.isIntersecting)
+            .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+          if (visible && visible.target && visible.target.id) {
+            setActive(visible.target.id);
+          }
+        },
+        {
+          rootMargin: "-20% 0px -55% 0px",
+          threshold: [0.1, 0.25, 0.4, 0.6],
+        }
+      );
+
+      sections.forEach((item) => observer.observe(item.section));
+      setActive(sections[0].section.id);
+      return;
+    }
+
+    const onScroll = () => {
+      let currentId = sections[0].section.id;
+      sections.forEach((item) => {
+        const rect = item.section.getBoundingClientRect();
+        if (rect.top <= 180) {
+          currentId = item.section.id;
+        }
+      });
+      setActive(currentId);
+    };
+
+    window.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
   }
 
   function ensureXlsxReady() {
@@ -1324,6 +1511,440 @@ DW-810｜CNC線割機
       .sort((a, b) => a.productSpec.localeCompare(b.productSpec));
   }
 
+  function buildProductSpecFlowAnalysis(workOrders, searchTerm) {
+    const groups = new Map();
+
+    (workOrders || []).forEach((order) => {
+      if (!order.normalizedProductSpec) {
+        return;
+      }
+      if (!groups.has(order.normalizedProductSpec)) {
+        groups.set(order.normalizedProductSpec, []);
+      }
+      groups.get(order.normalizedProductSpec).push(order);
+    });
+
+    const keyword = normalizeSearchText(searchTerm);
+
+    return Array.from(groups.entries())
+      .map(([normalizedProductSpec, orders]) => {
+        const sortedOrders = [...orders].sort((a, b) => {
+          const aTime = a.startedAt ? a.startedAt.getTime() : Number.MAX_SAFE_INTEGER;
+          const bTime = b.startedAt ? b.startedAt.getTime() : Number.MAX_SAFE_INTEGER;
+          return aTime - bTime || a.workOrderNo.localeCompare(b.workOrderNo);
+        });
+        const eligibleOrders = sortedOrders.filter((order) => order.completed && !order.hasAnomaly);
+        const machineMetaMap = new Map();
+        const machinePositionMap = new Map();
+        const routeTemplates = new Map();
+        const transitionMetaMap = new Map();
+        const transitionPositionMap = new Map();
+
+        sortedOrders.forEach((order) => {
+          const routeKeys = (order.machineWorkSummary || [])
+            .map((machine, index) => {
+              const machineKey = machine.machineKey || getMachineKey(machine.machineId, machine.machineName);
+              if (!machineKey) {
+                return "";
+              }
+              if (!machineMetaMap.has(machineKey)) {
+                machineMetaMap.set(machineKey, {
+                  machineKey,
+                  stationName: machine.stationName || composeMachineLabel(machine.machineId, machine.machineName) || machineKey,
+                  machineId: machine.machineId || "",
+                  machineName: machine.machineName || "",
+                });
+              }
+              if (!machinePositionMap.has(machineKey)) {
+                machinePositionMap.set(machineKey, []);
+              }
+              machinePositionMap.get(machineKey).push(index);
+              return machineKey;
+            })
+            .filter(Boolean);
+
+          if (routeKeys.length) {
+            const templateKey = routeKeys.join("||");
+            if (!routeTemplates.has(templateKey)) {
+              routeTemplates.set(templateKey, {
+                keys: routeKeys,
+                count: 0,
+                weight: 0,
+              });
+            }
+            const target = routeTemplates.get(templateKey);
+            target.count += 1;
+            target.weight += order.completed && !order.hasAnomaly ? 10 : 1;
+          }
+
+          (order.stationTransitions || []).forEach((transition, index) => {
+            const fromKey = cleanString(transition.fromMachineKey);
+            const toKey = cleanString(transition.toMachineKey);
+            if (!fromKey || !toKey || fromKey === toKey) {
+              return;
+            }
+            const transitionKey = `${fromKey}>>>${toKey}`;
+            if (!transitionMetaMap.has(transitionKey)) {
+              transitionMetaMap.set(transitionKey, {
+                transitionKey,
+                fromMachineKey: fromKey,
+                toMachineKey: toKey,
+                fromStation: transition.fromStation,
+                toStation: transition.toStation,
+                label: `${transition.fromStation} → ${transition.toStation}`,
+              });
+            }
+            if (!transitionPositionMap.has(transitionKey)) {
+              transitionPositionMap.set(transitionKey, []);
+            }
+            transitionPositionMap.get(transitionKey).push(index);
+          });
+        });
+
+        const templateRoute = Array.from(routeTemplates.values())
+          .sort((a, b) => b.weight - a.weight || b.count - a.count || b.keys.length - a.keys.length)[0];
+        const orderedMachineKeys = [];
+        const seenMachineKeys = new Set();
+
+        (templateRoute ? templateRoute.keys : []).forEach((machineKey) => {
+          if (!seenMachineKeys.has(machineKey)) {
+            seenMachineKeys.add(machineKey);
+            orderedMachineKeys.push(machineKey);
+          }
+        });
+
+        Array.from(machineMetaMap.keys())
+          .sort((a, b) => {
+            const aPositions = machinePositionMap.get(a) || [];
+            const bPositions = machinePositionMap.get(b) || [];
+            const aAverage = aPositions.length ? average(aPositions) : Number.MAX_SAFE_INTEGER;
+            const bAverage = bPositions.length ? average(bPositions) : Number.MAX_SAFE_INTEGER;
+            const aLabel = machineMetaMap.get(a).stationName;
+            const bLabel = machineMetaMap.get(b).stationName;
+            return aAverage - bAverage || aLabel.localeCompare(bLabel, "zh-Hant");
+          })
+          .forEach((machineKey) => {
+            if (!seenMachineKeys.has(machineKey)) {
+              seenMachineKeys.add(machineKey);
+              orderedMachineKeys.push(machineKey);
+            }
+          });
+
+        const machineColumns = orderedMachineKeys
+          .map((machineKey) => machineMetaMap.get(machineKey))
+          .filter(Boolean);
+
+        const transitionColumns = Array.from(transitionMetaMap.values()).sort((a, b) => {
+          const aFromIndex = orderedMachineKeys.indexOf(a.fromMachineKey);
+          const bFromIndex = orderedMachineKeys.indexOf(b.fromMachineKey);
+          const aToIndex = orderedMachineKeys.indexOf(a.toMachineKey);
+          const bToIndex = orderedMachineKeys.indexOf(b.toMachineKey);
+          const aPos = aFromIndex >= 0 ? aFromIndex : Number.MAX_SAFE_INTEGER;
+          const bPos = bFromIndex >= 0 ? bFromIndex : Number.MAX_SAFE_INTEGER;
+          const aNext = aToIndex >= 0 ? aToIndex : Number.MAX_SAFE_INTEGER;
+          const bNext = bToIndex >= 0 ? bToIndex : Number.MAX_SAFE_INTEGER;
+          return aPos - bPos || aNext - bNext || a.label.localeCompare(b.label, "zh-Hant");
+        });
+
+        const displayColumns = [];
+        machineColumns.forEach((machine) => {
+          displayColumns.push({ type: "machine", machineKey: machine.machineKey, label: machine.stationName });
+          transitionColumns
+            .filter((transition) => transition.fromMachineKey === machine.machineKey)
+            .forEach((transition) => {
+              displayColumns.push({
+                type: "waiting",
+                transitionKey: transition.transitionKey,
+                label: transition.label,
+              });
+            });
+        });
+
+        const orderRows = sortedOrders.map((order) => {
+          const machineCellMap = new Map();
+          (order.machineWorkSummary || []).forEach((machine) => {
+            const machineKey = machine.machineKey || getMachineKey(machine.machineId, machine.machineName);
+            if (!machineKey) {
+              return;
+            }
+            machineCellMap.set(machineKey, normalizeDuration(machine.processingHours));
+          });
+
+          const transitionCellMap = new Map();
+          (order.stationTransitions || []).forEach((transition) => {
+            const fromKey = cleanString(transition.fromMachineKey);
+            const toKey = cleanString(transition.toMachineKey);
+            if (!fromKey || !toKey || fromKey === toKey) {
+              return;
+            }
+            const transitionKey = `${fromKey}>>>${toKey}`;
+            transitionCellMap.set(
+              transitionKey,
+              normalizeDuration(transitionCellMap.get(transitionKey)) + normalizeDuration(transition.waitingMs)
+            );
+          });
+
+          const flowLeadTimeMs = normalizeDuration(order.totalProcessingMs) + normalizeDuration(order.totalWaitingMs);
+          const flowAllowanceMs = normalizeDuration(Math.round(flowLeadTimeMs * 1.3));
+
+          return {
+            ...order,
+            machineCellMap,
+            transitionCellMap,
+            flowLeadTimeMs,
+            flowAllowanceMs,
+            machineRouteText: order.machineRoute.length ? order.machineRoute.join(" → ") : "尚未形成流程",
+          };
+        });
+
+        const machineAverages = machineColumns
+          .map((machine) => {
+            const values = eligibleOrders
+              .map((order) => {
+                const summary = (order.machineWorkSummary || []).find((item) => (item.machineKey || getMachineKey(item.machineId, item.machineName)) === machine.machineKey);
+                return normalizeDuration(summary && summary.processingHours);
+              })
+              .filter((value) => value > 0);
+
+            return {
+              machineKey: machine.machineKey,
+              stationName: machine.stationName,
+              sampleCount: values.length,
+              averageMs: values.length ? average(values) : 0,
+            };
+          })
+          .filter((item) => item.sampleCount > 0);
+
+        const transitionAverages = transitionColumns
+          .map((transition) => {
+            const values = eligibleOrders
+              .map((order) => {
+                return (order.stationTransitions || []).reduce((sum, item) => {
+                  if (
+                    cleanString(item.fromMachineKey) === transition.fromMachineKey &&
+                    cleanString(item.toMachineKey) === transition.toMachineKey
+                  ) {
+                    return sum + normalizeDuration(item.waitingMs);
+                  }
+                  return sum;
+                }, 0);
+              })
+              .filter((value) => value > 0);
+
+          return {
+            transitionKey: transition.transitionKey,
+            label: transition.label,
+            sampleCount: values.length,
+            averageMs: values.length ? average(values) : 0,
+            };
+          })
+          .filter((item) => item.sampleCount > 0);
+
+        const routeGroupMap = new Map();
+        orderRows.forEach((order) => {
+          const routeMachines = (order.machineWorkSummary || [])
+            .map((machine) => {
+              const machineKey = machine.machineKey || getMachineKey(machine.machineId, machine.machineName);
+              if (!machineKey) {
+                return null;
+              }
+              return {
+                machineKey,
+                stationName: machine.stationName || composeMachineLabel(machine.machineId, machine.machineName) || machineKey,
+                machineId: machine.machineId || "",
+                machineName: machine.machineName || "",
+              };
+            })
+            .filter(Boolean);
+
+          const routeKey = routeMachines.map((item) => item.machineKey).join("||") || "__NO_ROUTE__";
+          if (!routeGroupMap.has(routeKey)) {
+            const waitingColumns = [];
+            const displayColumns = [];
+            routeMachines.forEach((machine, index) => {
+              displayColumns.push({
+                type: "machine",
+                machineKey: machine.machineKey,
+                label: machine.stationName,
+              });
+              const nextMachine = routeMachines[index + 1];
+              if (nextMachine && nextMachine.machineKey !== machine.machineKey) {
+                const transitionKey = `${machine.machineKey}>>>${nextMachine.machineKey}`;
+                waitingColumns.push({
+                  transitionKey,
+                  fromMachineKey: machine.machineKey,
+                  toMachineKey: nextMachine.machineKey,
+                  fromStation: machine.stationName,
+                  toStation: nextMachine.stationName,
+                  label: `${machine.stationName}→${nextMachine.stationName}`,
+                });
+                displayColumns.push({
+                  type: "waiting",
+                  transitionKey,
+                  label: `${machine.stationName}→${nextMachine.stationName}`,
+                });
+              }
+            });
+
+            routeGroupMap.set(routeKey, {
+              routeKey,
+              routeLabel: routeMachines.length ? routeMachines.map((item) => item.stationName).join(" → ") : "尚未形成流程",
+              machineColumns: routeMachines,
+              waitingColumns,
+              displayColumns,
+              orders: [],
+            });
+          }
+
+          routeGroupMap.get(routeKey).orders.push(order);
+        });
+
+        const routeGroups = Array.from(routeGroupMap.values())
+          .map((routeGroup) => {
+            const routeEligibleOrders = routeGroup.orders.filter((order) => order.completed && !order.hasAnomaly);
+            const routeMachineAverages = routeGroup.machineColumns
+              .map((machine) => {
+                const values = routeEligibleOrders
+                  .map((order) => normalizeDuration(order.machineCellMap.get(machine.machineKey) || 0))
+                  .filter((value) => value > 0);
+
+                return {
+                  machineKey: machine.machineKey,
+                  stationName: machine.stationName,
+                  sampleCount: values.length,
+                  averageMs: values.length ? average(values) : 0,
+                };
+              })
+              .filter((item) => item.sampleCount > 0);
+
+            const routeWaitingAverages = routeGroup.waitingColumns
+              .map((transition) => {
+                const values = routeEligibleOrders
+                  .map((order) => normalizeDuration(order.transitionCellMap.get(transition.transitionKey) || 0))
+                  .filter((value) => value > 0);
+
+                return {
+                  transitionKey: transition.transitionKey,
+                  label: transition.label,
+                  sampleCount: values.length,
+                  averageMs: values.length ? average(values) : 0,
+                };
+              })
+              .filter((item) => item.sampleCount > 0);
+
+            return {
+              ...routeGroup,
+              orderCount: routeGroup.orders.length,
+              analysisSampleCount: routeEligibleOrders.length,
+              machineAverages: routeMachineAverages,
+              waitingAverages: routeWaitingAverages,
+              averageTotalProcessingMs: routeEligibleOrders.length ? average(routeEligibleOrders.map((order) => order.totalProcessingMs)) : 0,
+              averageTotalWaitingMs: routeEligibleOrders.length ? average(routeEligibleOrders.map((order) => order.totalWaitingMs)) : 0,
+              averageLeadTimeMs: routeEligibleOrders.length ? average(routeEligibleOrders.map((order) => order.flowLeadTimeMs)) : 0,
+              averageAllowanceMs: routeEligibleOrders.length ? average(routeEligibleOrders.map((order) => order.flowAllowanceMs)) : 0,
+            };
+          })
+          .sort((a, b) => b.analysisSampleCount - a.analysisSampleCount || b.orderCount - a.orderCount || a.routeLabel.localeCompare(b.routeLabel, "zh-Hant"));
+
+        const searchText = normalizeSearchText(
+          [
+            normalizedProductSpec,
+            sortedOrders[0] && sortedOrders[0].productSpec,
+            ...sortedOrders.map((order) => order.workOrderNo),
+          ]
+            .filter(Boolean)
+            .join(" ")
+        );
+
+        return {
+          normalizedProductSpec,
+          productSpec: sortedOrders[0] && sortedOrders[0].productSpec ? sortedOrders[0].productSpec : normalizedProductSpec,
+          orderCount: sortedOrders.length,
+          analysisSampleCount: eligibleOrders.length,
+          machineColumns,
+          transitionColumns,
+          displayColumns,
+          routeGroups,
+          orders: orderRows,
+          machineAverages,
+          transitionAverages,
+          averageTotalProcessingMs: eligibleOrders.length ? average(eligibleOrders.map((order) => order.totalProcessingMs)) : 0,
+          averageTotalWaitingMs: eligibleOrders.length ? average(eligibleOrders.map((order) => order.totalWaitingMs)) : 0,
+          averageLeadTimeMs: eligibleOrders.length ? average(eligibleOrders.map((order) => normalizeDuration(order.totalProcessingMs) + normalizeDuration(order.totalWaitingMs))) : 0,
+          averageAllowanceMs: eligibleOrders.length
+            ? average(
+                eligibleOrders.map((order) =>
+                  normalizeDuration(Math.round((normalizeDuration(order.totalProcessingMs) + normalizeDuration(order.totalWaitingMs)) * 1.3))
+                )
+              )
+            : 0,
+          searchText,
+        };
+      })
+      .filter((group) => !keyword || group.searchText.includes(keyword))
+      .sort((a, b) => a.productSpec.localeCompare(b.productSpec, "zh-Hant"));
+  }
+
+  function buildProductFlowExportSheets(groups) {
+    const detailRows = [];
+    const summaryRows = [];
+
+    (groups || []).forEach((group) => {
+      (group.routeGroups || []).forEach((routeGroup) => {
+        routeGroup.orders.forEach((order) => {
+          const row = {
+            品名規格: group.productSpec,
+            製令單號: order.workOrderNo,
+            流程路線: routeGroup.routeLabel,
+          };
+
+          routeGroup.machineColumns.forEach((machine) => {
+            row[machine.stationName] = formatDuration(order.machineCellMap.get(machine.machineKey) || 0);
+          });
+
+          routeGroup.waitingColumns.forEach((transition) => {
+            row[`等待(${transition.label})`] = formatDuration(order.transitionCellMap.get(transition.transitionKey) || 0);
+          });
+
+          row.總工時 = formatDuration(order.totalProcessingMs);
+          row.總等待時間 = formatDuration(order.totalWaitingMs);
+          row.LeadTime = formatDuration(order.flowLeadTimeMs);
+          row["總時間(含寬放1.3)"] = formatDuration(order.flowAllowanceMs);
+          row.分析樣本數 = routeGroup.analysisSampleCount;
+          row.平均總工時 = formatDuration(routeGroup.averageTotalProcessingMs);
+          row.平均總等待時間 = formatDuration(routeGroup.averageTotalWaitingMs);
+          row.平均LeadTime = formatDuration(routeGroup.averageLeadTimeMs);
+          row["平均總時間(含寬放1.3)"] = formatDuration(routeGroup.averageAllowanceMs);
+          detailRows.push(row);
+        });
+
+        const summaryRow = {
+          品名規格: group.productSpec,
+          流程路線: routeGroup.routeLabel,
+          分析樣本數: routeGroup.analysisSampleCount,
+          製令單數量: routeGroup.orderCount,
+        };
+
+        routeGroup.machineAverages.forEach((item) => {
+          summaryRow[`${item.stationName}_平均加工時間`] = formatDuration(item.averageMs);
+        });
+        routeGroup.waitingAverages.forEach((item) => {
+          summaryRow[`等待(${item.label})_平均等待時間`] = formatDuration(item.averageMs);
+        });
+        summaryRow.平均總工時 = formatDuration(routeGroup.averageTotalProcessingMs);
+        summaryRow.平均總等待時間 = formatDuration(routeGroup.averageTotalWaitingMs);
+        summaryRow.平均LeadTime = formatDuration(routeGroup.averageLeadTimeMs);
+        summaryRow["平均總時間(含寬放1.3)"] = formatDuration(routeGroup.averageAllowanceMs);
+        summaryRows.push(summaryRow);
+      });
+    });
+
+    return {
+      detailRows,
+      summaryRows,
+    };
+  }
+
   function calculateStationWaitingDetails(workOrders) {
     return (workOrders || [])
       .flatMap((order) =>
@@ -2038,6 +2659,7 @@ DW-810｜CNC線割機
     renderWaitingAnalytics(view);
     renderMachineUsageSection(view);
     renderComparisonSection(view);
+    renderProductFlowAnalysisSection(view);
     renderProductOperatorSection(view);
     renderOperatorSummarySection(view);
     renderOperatorDetailSection(view);
@@ -2051,6 +2673,7 @@ DW-810｜CNC線割機
     const filteredStandards = buildStandards(filteredWorkOrders);
     const filteredScheduleRows = buildScheduleRows(filteredWorkOrders, filteredStandards);
     const filteredComparisons = buildProductSpecComparisons(filteredWorkOrders);
+    const filteredProductFlowAnalysis = buildProductSpecFlowAnalysis(filteredWorkOrders, state.productFlowSearchTerm);
     const filteredWaitingAnalytics = buildWaitingAnalytics(filteredWorkOrders, filteredMachineMetrics);
     const filteredMachineUsageAnalysis = buildMachineUsageAnalysis(filteredWorkOrders);
     const filteredOperatorSummaries = calculateOperatorSummary(filteredWorkOrders);
@@ -2072,6 +2695,7 @@ DW-810｜CNC線割機
       filteredStandards,
       filteredScheduleRows,
       filteredComparisons,
+      filteredProductFlowAnalysis,
       filteredWaitingAnalytics,
       filteredMachineUsageAnalysis,
       filteredOperatorSummaries,
@@ -2928,6 +3552,183 @@ DW-810｜CNC線割機
     container.innerHTML = cards;
   }
 
+  function renderProductFlowAnalysisSection(view) {
+    const container = document.getElementById("productFlowAnalysisSection");
+    const note = document.getElementById("productFlowAnalysisNote");
+    if (!container || !note) {
+      return;
+    }
+
+    if (!state.validRecords.length) {
+      note.textContent = "";
+      container.innerHTML = `<div class="empty-card">尚未載入資料。匯入 MES 工時資料後，這裡會依品名規格自動建立歷史流程分析表。</div>`;
+      return;
+    }
+
+    const groups = view.filteredProductFlowAnalysis || [];
+    const keyword = cleanString(state.productFlowSearchTerm);
+    const sampleCount = groups.reduce((sum, group) => sum + group.analysisSampleCount, 0);
+    note.textContent = `目前顯示 ${groups.length} 組品名規格流程｜分析樣本 ${sampleCount} 筆${keyword ? `｜搜尋：${keyword}` : ""}`;
+
+    if (!groups.length) {
+      container.innerHTML = `<div class="empty-card">目前條件下沒有可分析的品名規格流程資料。</div>`;
+      return;
+    }
+
+    container.innerHTML = groups
+      .map((group) => {
+        const routeTables = (group.routeGroups || [])
+          .map((routeGroup) => {
+            const headerCells = routeGroup.displayColumns
+              .map((column) =>
+                column.type === "machine"
+                  ? `<th class="flow-dynamic-col">${escapeHtml(column.label)}</th>`
+                  : `<th class="flow-wait-col">等待(${escapeHtml(column.label)})</th>`
+              )
+              .join("");
+
+            const bodyRows = routeGroup.orders
+              .map((order) => {
+                const dynamicCells = routeGroup.displayColumns
+                  .map((column) => {
+                    if (column.type === "machine") {
+                      return `<td class="mono">${formatDuration(order.machineCellMap.get(column.machineKey) || 0)}</td>`;
+                    }
+                    return `<td class="mono">${formatDuration(order.transitionCellMap.get(column.transitionKey) || 0)}</td>`;
+                  })
+                  .join("");
+
+                return `
+                  <tr>
+                    <td class="mono primary-text">${escapeHtml(order.workOrderNo)}</td>
+                    ${dynamicCells}
+                    <td class="mono">${formatDuration(order.totalProcessingMs)}</td>
+                    <td class="mono">${formatDuration(order.totalWaitingMs)}</td>
+                    <td class="mono">${formatDuration(order.flowAllowanceMs)}</td>
+                  </tr>
+                `;
+              })
+              .join("");
+
+            const machineAverageMap = new Map(routeGroup.machineAverages.map((item) => [item.machineKey, item.averageMs]));
+            const waitingAverageMap = new Map(routeGroup.waitingAverages.map((item) => [item.transitionKey, item.averageMs]));
+
+            const sampleCountCells = routeGroup.displayColumns.map(() => `<td class="flow-table-muted">—</td>`).join("");
+            const averageMachineCells = routeGroup.displayColumns
+              .map((column) =>
+                column.type === "machine"
+                  ? `<td class="mono">${formatDuration(machineAverageMap.get(column.machineKey) || 0)}</td>`
+                  : `<td class="flow-table-muted">—</td>`
+              )
+              .join("");
+            const averageWaitingCells = routeGroup.displayColumns
+              .map((column) =>
+                column.type === "waiting"
+                  ? `<td class="mono">${formatDuration(waitingAverageMap.get(column.transitionKey) || 0)}</td>`
+                  : `<td class="flow-table-muted">—</td>`
+              )
+              .join("");
+            const totalSummaryCells = routeGroup.displayColumns.map(() => `<td class="flow-table-muted">—</td>`).join("");
+
+            const footerRows = `
+              <tr class="product-flow-footer-row">
+                <td class="product-flow-footer-title">分析樣本數</td>
+                ${sampleCountCells}
+                <td class="mono">${routeGroup.analysisSampleCount} 筆</td>
+                <td class="flow-table-muted">—</td>
+                <td class="flow-table-muted">—</td>
+              </tr>
+              <tr class="product-flow-footer-row">
+                <td class="product-flow-footer-title">平均加工時間</td>
+                ${averageMachineCells}
+                <td class="mono">${formatDuration(routeGroup.averageTotalProcessingMs)}</td>
+                <td class="flow-table-muted">—</td>
+                <td class="flow-table-muted">—</td>
+              </tr>
+              <tr class="product-flow-footer-row">
+                <td class="product-flow-footer-title">平均等待時間</td>
+                ${averageWaitingCells}
+                <td class="flow-table-muted">—</td>
+                <td class="mono">${formatDuration(routeGroup.averageTotalWaitingMs)}</td>
+                <td class="flow-table-muted">—</td>
+              </tr>
+              <tr class="product-flow-footer-row">
+                <td class="product-flow-footer-title">平均總工時 / 平均總等待時間 / 平均總時間(含寬放)</td>
+                ${totalSummaryCells}
+                <td class="mono">${formatDuration(routeGroup.averageTotalProcessingMs)}</td>
+                <td class="mono">${formatDuration(routeGroup.averageTotalWaitingMs)}</td>
+                <td class="mono">${formatDuration(routeGroup.averageAllowanceMs)}</td>
+              </tr>
+            `;
+
+            return `
+              <div class="product-flow-route-card">
+                <div class="product-flow-route-title">${escapeHtml(routeGroup.routeLabel)}</div>
+                <div class="foot-note">流程樣本 ${routeGroup.orderCount} 張｜有效樣本 ${routeGroup.analysisSampleCount} 張</div>
+                <div class="table-shell nested-table-shell product-flow-table-shell">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>製令單號</th>
+                        ${headerCells}
+                        <th>總工時</th>
+                        <th>總等待時間</th>
+                        <th>總時間(含寬放1.3)</th>
+                      </tr>
+                    </thead>
+                    <tbody>${bodyRows}</tbody>
+                    <tfoot>${footerRows}</tfoot>
+                  </table>
+                </div>
+              </div>
+            `;
+          })
+          .join("");
+
+        return `
+          <details class="comparison-card panel-soft-card">
+            <summary>
+              <div>
+                <strong>${escapeHtml(group.productSpec)}</strong>
+                <div class="foot-note">製令單數量 ${group.orderCount}｜分析樣本數 ${group.analysisSampleCount}</div>
+              </div>
+              <div class="comparison-summary-grid">
+                <span>平均總工時 ${formatDuration(group.averageTotalProcessingMs)}</span>
+                <span>平均等待 ${formatDuration(group.averageTotalWaitingMs)}</span>
+                <span>平均 Lead Time ${formatDuration(group.averageLeadTimeMs)}</span>
+                <span>平均總時間 ${formatDuration(group.averageAllowanceMs)}</span>
+              </div>
+            </summary>
+            <div class="detail-summary-grid product-flow-group-summary">
+              <div class="detail-summary-item">
+                <strong>分析樣本數</strong>
+                <span>${group.analysisSampleCount} 筆</span>
+                <span>歷史製令單 ${group.orderCount} 張</span>
+              </div>
+              <div class="detail-summary-item">
+                <strong>平均總工時</strong>
+                <span>${formatDuration(group.averageTotalProcessingMs)}</span>
+              </div>
+              <div class="detail-summary-item">
+                <strong>平均等待時間</strong>
+                <span>${formatDuration(group.averageTotalWaitingMs)}</span>
+              </div>
+              <div class="detail-summary-item">
+                <strong>平均 Lead Time</strong>
+                <span>${formatDuration(group.averageLeadTimeMs)}</span>
+              </div>
+              <div class="detail-summary-item">
+                <strong>平均總時間(含寬放1.3)</strong>
+                <span>${formatDuration(group.averageAllowanceMs)}</span>
+              </div>
+            </div>
+            <div class="product-flow-route-stack">${routeTables}</div>
+          </details>
+        `;
+      })
+      .join("");
+  }
+
   function renderProductOperatorSection(view) {
     const container = document.getElementById("productOperatorSection");
     if (!state.validRecords.length) {
@@ -3175,7 +3976,7 @@ DW-810｜CNC線割機
       .sort((a, b) => b.totalProcessingMs - a.totalProcessingMs || a.partNo.localeCompare(b.partNo));
   }
 
-    function exportRangeReport(mode) {
+  function exportRangeReport(mode) {
     if (!state.validRecords.length) {
       setMessage("目前沒有可匯出的資料。", "error");
       return;
@@ -3193,6 +3994,8 @@ DW-810｜CNC線割機
       if (state.partSummaryEnabled) {
         appendSheet(workbook, "料件彙總分析", sheets.partSummarySheet);
       }
+      appendSheet(workbook, "品名規格流程分析", sheets.productFlowDetailSheet);
+      appendSheet(workbook, "品名規格流程統計", sheets.productFlowSummarySheet);
       appendSheet(workbook, "站間等待分析", sheets.waitingSheet);
       appendSheet(workbook, "機台利用率", sheets.machineUtilSheet);
       appendSheet(workbook, "異常資料", sheets.anomalySheet);
@@ -3206,7 +4009,7 @@ DW-810｜CNC線割機
     }
   }
 
-    function exportAllAnalysisReport() {
+  function exportAllAnalysisReport() {
     if (!state.validRecords.length) {
       setMessage("目前沒有可匯出的完整分析資料。", "error");
       return;
@@ -3223,6 +4026,8 @@ DW-810｜CNC線割機
       if (state.partSummaryEnabled) {
         appendSheet(workbook, "料件彙總分析", sheets.partSummarySheet);
       }
+      appendSheet(workbook, "品名規格流程分析", sheets.productFlowDetailSheet);
+      appendSheet(workbook, "品名規格流程統計", sheets.productFlowSummarySheet);
       appendSheet(workbook, "站間等待分析", sheets.waitingSheet);
       appendSheet(workbook, "機台利用率", sheets.machineUtilSheet);
       appendSheet(workbook, "異常資料", sheets.anomalySheet);
@@ -3236,7 +4041,9 @@ DW-810｜CNC線割機
     }
   }
 
-    function buildAnalysisSheets(scoped) {
+  function buildAnalysisSheets(scoped) {
+    const productFlowGroups = buildProductSpecFlowAnalysis(scoped.workOrders, "");
+    const productFlowSheets = buildProductFlowExportSheets(productFlowGroups);
     const workOrderSheet = scoped.workOrders.map((order) => ({
       製令單號: order.workOrderNo,
       品名規格: order.productSpec || "",
@@ -3358,11 +4165,42 @@ DW-810｜CNC線割機
       workOrderSheet,
       machineDetailSheet,
       partSummarySheet,
+      productFlowDetailSheet: productFlowSheets.detailRows,
+      productFlowSummarySheet: productFlowSheets.summaryRows,
       machineUtilSheet,
       waitingSheet,
       anomalySheet,
       rawSheet,
     };
+  }
+
+  function exportProductFlowReport() {
+    if (!state.validRecords.length) {
+      setMessage("目前沒有可匯出的品名規格流程分析資料。", "error");
+      return;
+    }
+
+    try {
+      ensureXlsxReady();
+      const scoped = getScopedData();
+      const view = getFilteredView(scoped);
+      const productFlowGroups = view.filteredProductFlowAnalysis || [];
+      if (!productFlowGroups.length) {
+        setMessage("目前條件下沒有可匯出的品名規格流程分析資料。", "error");
+        return;
+      }
+
+      const workbook = window.XLSX.utils.book_new();
+      const sheets = buildProductFlowExportSheets(productFlowGroups);
+      appendSheet(workbook, "品名規格流程分析", sheets.detailRows);
+      appendSheet(workbook, "品名規格流程統計", sheets.summaryRows);
+
+      const fileName = `MES品名規格流程分析_${buildRangeFileLabel(scoped.range)}.xlsx`;
+      window.XLSX.writeFile(workbook, fileName);
+      setMessage(`已匯出：${fileName}`, "info");
+    } catch (error) {
+      setMessage(error.message || "品名規格流程分析匯出失敗。", "error");
+    }
   }
 
     function exportWorkOrderDetailReport(workOrderNo) {

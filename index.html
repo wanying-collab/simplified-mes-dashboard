@@ -1,11 +1,11 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="zh-Hant">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="簡化版 MES 工時整理與排程預估登入入口，提供工單流程、標準工時、排程預估與等待分析。"
+      content="簡化版 MES 工時整理與排程預估登入入口，進入後可使用製令單流程、品名規格標準工時、排程預估、等待分析與機台利用率功能。"
     />
     <title>簡化版 MES 工時整理與排程預估｜登入入口</title>
     <style>
@@ -13,22 +13,20 @@
         color-scheme: light;
         --bg-1: #f6f3ff;
         --bg-2: #efe9ff;
-        --panel: rgba(255, 255, 255, 0.74);
-        --panel-strong: rgba(255, 255, 255, 0.86);
+        --panel: rgba(255, 255, 255, 0.76);
+        --panel-strong: rgba(255, 255, 255, 0.88);
         --line: rgba(139, 92, 246, 0.14);
-        --line-strong: rgba(139, 92, 246, 0.22);
+        --line-strong: rgba(139, 92, 246, 0.24);
         --text: #312e81;
         --muted: #475569;
         --accent: #8b5cf6;
         --accent-2: #a78bfa;
-        --danger: #be123c;
         --ok: #047857;
+        --danger: #be123c;
         font-family: "Segoe UI", "Microsoft JhengHei", sans-serif;
       }
 
-      * {
-        box-sizing: border-box;
-      }
+      * { box-sizing: border-box; }
 
       body {
         margin: 0;
@@ -48,28 +46,25 @@
       }
 
       .card {
-        width: min(100%, 1040px);
+        width: min(100%, 1080px);
         display: grid;
         grid-template-columns: 1.08fr 0.92fr;
         overflow: hidden;
         border: 1px solid var(--line);
-        border-radius: 28px;
-        background: linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.7));
+        border-radius: 30px;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.8), rgba(255, 255, 255, 0.72));
         box-shadow: 0 28px 80px rgba(139, 92, 246, 0.14);
         backdrop-filter: blur(18px);
       }
 
+      .hero,
+      .panel { padding: 40px; }
+
       .hero {
-        padding: 42px;
         border-right: 1px solid var(--line);
         background:
-          linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.4)),
-          radial-gradient(circle at top right, rgba(196, 181, 253, 0.34), transparent 36%);
-      }
-
-      .panel {
-        padding: 42px;
-        background: linear-gradient(180deg, rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0.76));
+          linear-gradient(180deg, rgba(255, 255, 255, 0.76), rgba(255, 255, 255, 0.54)),
+          radial-gradient(circle at top right, rgba(196, 181, 253, 0.34), transparent 38%);
       }
 
       .eyebrow {
@@ -88,23 +83,23 @@
       }
 
       h1 {
-        margin: 22px 0 14px;
+        margin: 20px 0 12px;
         font-size: clamp(34px, 4vw, 54px);
-        line-height: 1.04;
+        line-height: 1.05;
         font-weight: 800;
         letter-spacing: -0.03em;
       }
 
       .lead {
         margin: 0;
-        max-width: 620px;
+        max-width: 640px;
         color: var(--muted);
         font-size: 16px;
         line-height: 1.8;
       }
 
       .feature-grid {
-        margin-top: 28px;
+        margin-top: 26px;
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 14px;
@@ -114,7 +109,7 @@
         padding: 18px;
         border-radius: 18px;
         border: 1px solid rgba(139, 92, 246, 0.12);
-        background: rgba(255, 255, 255, 0.66);
+        background: rgba(255, 255, 255, 0.68);
       }
 
       .feature strong {
@@ -129,14 +124,14 @@
       .panel li {
         color: var(--muted);
         font-size: 14px;
-        line-height: 1.7;
+        line-height: 1.72;
       }
 
       .status-strip {
-        margin-top: 30px;
+        margin-top: 28px;
         display: flex;
-        gap: 12px;
         flex-wrap: wrap;
+        gap: 12px;
       }
 
       .pill {
@@ -164,32 +159,28 @@
         line-height: 1.2;
       }
 
-      .field {
-        margin-top: 18px;
-      }
+      .field { margin-top: 18px; }
 
       label {
         display: block;
         margin-bottom: 10px;
         font-size: 13px;
-        font-weight: 600;
+        font-weight: 700;
         color: #312e81;
         letter-spacing: 0.08em;
         text-transform: uppercase;
       }
 
-      .input-row {
-        position: relative;
-      }
+      .input-row { position: relative; }
 
       input[type="password"],
       input[type="text"] {
         width: 100%;
         border: 1px solid rgba(139, 92, 246, 0.14);
         border-radius: 18px;
-        background: rgba(255, 255, 255, 0.9);
+        background: rgba(255, 255, 255, 0.92);
         color: #312e81;
-        padding: 16px 56px 16px 16px;
+        padding: 16px 60px 16px 16px;
         font-size: 16px;
         outline: none;
         transition: border-color 0.18s ease, box-shadow 0.18s ease;
@@ -222,80 +213,65 @@
         flex-wrap: wrap;
       }
 
-      .btn-primary,
-      .btn-secondary {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        min-height: 52px;
+      .btn {
         border: 0;
         border-radius: 18px;
-        padding: 0 18px;
+        padding: 14px 18px;
         font-size: 15px;
-        font-weight: 700;
+        font-weight: 800;
         cursor: pointer;
-        transition: transform 0.18s ease, opacity 0.18s ease;
+        transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
       }
 
+      .btn:hover { transform: translateY(-1px); }
+
       .btn-primary {
-        color: #ffffff;
-        background: linear-gradient(135deg, var(--accent), #7c3aed);
+        background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+        color: #fff;
+        box-shadow: 0 16px 32px rgba(139, 92, 246, 0.24);
       }
 
       .btn-secondary {
+        background: rgba(139, 92, 246, 0.1);
         color: #6d28d9;
-        background: #ede9fe;
-        border: 1px solid rgba(139, 92, 246, 0.1);
       }
 
-      .btn-primary:hover,
-      .btn-secondary:hover,
-      .toggle:hover {
-        transform: translateY(-1px);
+      .helper-list {
+        margin: 20px 0 0;
+        padding-left: 18px;
       }
 
       .message {
         min-height: 24px;
-        margin-top: 16px;
-        color: var(--muted);
+        margin-top: 14px;
         font-size: 14px;
+        font-weight: 700;
+      }
+
+      .message.error { color: var(--danger); }
+      .message.success { color: var(--ok); }
+
+      .muted-note {
+        margin-top: 14px;
+        color: var(--muted);
+        font-size: 13px;
         line-height: 1.7;
       }
 
-      .message.error {
-        color: var(--danger);
-      }
-
-      .message.success {
-        color: var(--ok);
-      }
-
-      .helper {
-        margin-top: 18px;
-        padding: 16px 18px;
-        border-radius: 18px;
-        border: 1px solid rgba(139, 92, 246, 0.12);
-        background: rgba(255, 255, 255, 0.68);
-      }
-
-      @media (max-width: 900px) {
-        .card {
-          grid-template-columns: 1fr;
-        }
-
+      @media (max-width: 980px) {
+        .card { grid-template-columns: 1fr; }
         .hero {
           border-right: 0;
           border-bottom: 1px solid var(--line);
         }
+      }
 
-        .hero,
-        .panel {
-          padding: 28px;
-        }
-
-        .feature-grid {
-          grid-template-columns: 1fr;
-        }
+      @media (max-width: 720px) {
+        .shell { padding: 14px; }
+        .hero, .panel { padding: 24px; }
+        .feature-grid { grid-template-columns: 1fr; }
+        .actions { flex-direction: column; }
+        .btn { width: 100%; }
       }
     </style>
   </head>
@@ -303,67 +279,67 @@
     <div class="shell">
       <div class="card">
         <section class="hero">
-          <div class="eyebrow">Simplified MES</div>
+          <div class="eyebrow">Simplified MES Dashboard</div>
           <h1>簡化版 MES 工時整理與排程預估</h1>
           <p class="lead">
-            維持現場好上手的介面，集中整理製令單流程、品名規格標準工時、排程預估、等待分析與機台稼動率。
+            只保留現場主管最常用的核心分析：製令單流程、品名規格標準工時、排程預估、等待時間、機台利用率與人員加工分析。
           </p>
+
           <div class="feature-grid">
             <div class="feature">
               <strong>製令單流程表</strong>
-              <span>依製令單整理每站加工時間、跨機台等待與完成狀態。</span>
+              <span>整理每張工單的機台流程、各站加工工時、跨機台等待與完成狀態。</span>
             </div>
             <div class="feature">
               <strong>品名規格標準工時</strong>
-              <span>只使用最後有 End 的完成資料建立平均工時與排程基準。</span>
+              <span>依歷史完成工單建立平均加工工時、等待工時與排程估時基準。</span>
             </div>
             <div class="feature">
-              <strong>排程預估</strong>
-              <span>依品名規格、機台標準工時與目前狀態估算後續加工時間。</span>
+              <strong>排程與等待分析</strong>
+              <span>快速查看未完成工單、站間等待卡點與各機台使用情況。</span>
             </div>
             <div class="feature">
-              <strong>等待與稼動率</strong>
-              <span>保留跨機台等待、各站分析、機台利用率與 Excel 匯出。</span>
+              <strong>Excel / TSV 支援</strong>
+              <span>可匯入 Excel、CSV 或直接貼上 TSV 文字資料，立即開始分析。</span>
             </div>
           </div>
+
           <div class="status-strip">
-            <div class="pill">固定休息時間扣除</div>
-            <div class="pill">重複 End 不重算工時</div>
-            <div class="pill">同機台不算等待</div>
+            <span class="pill">固定休息時間扣除</span>
+            <span class="pill">跨機台等待分析</span>
+            <span class="pill">重複 End 忽略</span>
+            <span class="pill">品名規格比較</span>
           </div>
         </section>
 
         <section class="panel">
           <div class="login-box">
-            <h2>登入系統</h2>
-            <p>輸入分享密碼後，即可進入目前固定版 MES 工時系統。</p>
+            <h2>進入系統</h2>
+            <p>輸入分享密碼後，即可開啟 MES 分析儀表板。</p>
 
-            <form id="loginForm">
-              <div class="field">
-                <label for="passwordInput">系統密碼</label>
-                <div class="input-row">
-                  <input id="passwordInput" type="password" autocomplete="current-password" placeholder="請輸入密碼" />
-                  <button id="toggleVisibility" class="toggle" type="button">顯示</button>
-                </div>
+            <div class="field">
+              <label for="passwordInput">系統密碼</label>
+              <div class="input-row">
+                <input id="passwordInput" type="password" autocomplete="current-password" placeholder="請輸入密碼" />
+                <button id="togglePasswordBtn" class="toggle" type="button">顯示</button>
               </div>
+            </div>
 
-              <div class="actions">
-                <button id="submitButton" class="btn-primary" type="submit">進入系統</button>
-                <button id="clearButton" class="btn-secondary" type="button">清除輸入</button>
-              </div>
-            </form>
+            <div class="actions">
+              <button id="loginBtn" class="btn btn-primary" type="button">登入 MES 系統</button>
+              <button id="clearBtn" class="btn btn-secondary" type="button">清除輸入</button>
+            </div>
 
-            <div id="message" class="message"></div>
+            <div id="message" class="message" aria-live="polite"></div>
 
-            <div class="helper">
-              <p>登入後可直接使用：</p>
-              <ul>
-                <li>上傳 Excel / CSV</li>
-                <li>貼上 TSV 資料分析</li>
-                <li>製令單流程表</li>
-                <li>品名規格標準工時表</li>
-                <li>排程預估表與等待分析</li>
-              </ul>
+            <ul class="helper-list">
+              <li>登入後可直接匯入 Excel / CSV。</li>
+              <li>也可貼上 TSV 文字資料開始分析。</li>
+              <li>支援製令單流程、等待時間、機台利用率與人員分析。</li>
+            </ul>
+
+            <div class="muted-note">
+              如果已經登入過，系統會直接進入主畫面。若畫面沒有自動跳轉，請重新整理後再試一次。
             </div>
           </div>
         </section>
@@ -372,85 +348,80 @@
 
     <script>
       (function () {
-        const SESSION_KEY = "mes_access_granted_v1";
-        const PASSWORD_HASH = "e8843c11623b0e6bfc0921ee2f86b4f127c5cac825de60c8fcfbc2918aee312b";
-        const REDIRECT_URL = "./portal-x7k9m4q2/";
+        var SESSION_KEY = "mes_access_granted_v1";
+        var PASSWORD_HASH = "e8843c11623b0e6bfc0921ee2f86b4f127c5cac825de60c8fcfbc2918aee312b";
+        var TARGET_URL = "./portal-x7k9m4q2/";
 
-        const loginForm = document.getElementById("loginForm");
-        const passwordInput = document.getElementById("passwordInput");
-        const submitButton = document.getElementById("submitButton");
-        const clearButton = document.getElementById("clearButton");
-        const toggleVisibility = document.getElementById("toggleVisibility");
-        const message = document.getElementById("message");
+        var passwordInput = document.getElementById("passwordInput");
+        var loginBtn = document.getElementById("loginBtn");
+        var clearBtn = document.getElementById("clearBtn");
+        var togglePasswordBtn = document.getElementById("togglePasswordBtn");
+        var message = document.getElementById("message");
 
         try {
           if (sessionStorage.getItem(SESSION_KEY) === PASSWORD_HASH) {
-            window.location.replace(REDIRECT_URL);
+            window.location.replace(TARGET_URL);
             return;
           }
-        } catch (error) {
-          // ignore sessionStorage access issue and continue
-        }
+        } catch (error) {}
 
         function setMessage(text, type) {
           message.textContent = text || "";
-          message.className = type ? `message ${type}` : "message";
+          message.className = "message" + (type ? " " + type : "");
         }
 
-        async function sha256(input) {
-          const data = new TextEncoder().encode(input);
-          const digest = await crypto.subtle.digest("SHA-256", data);
-          return Array.from(new Uint8Array(digest))
-            .map((value) => value.toString(16).padStart(2, "0"))
-            .join("");
+        async function sha256Hex(value) {
+          var data = new TextEncoder().encode(value);
+          var digest = await crypto.subtle.digest("SHA-256", data);
+          return Array.from(new Uint8Array(digest)).map(function (byte) {
+            return byte.toString(16).padStart(2, "0");
+          }).join("");
         }
 
-        function goToApp() {
-          window.location.replace(REDIRECT_URL);
-        }
-
-        loginForm.addEventListener("submit", async (event) => {
-          event.preventDefault();
-          const rawValue = passwordInput.value.trim();
-
-          if (!rawValue) {
+        async function handleLogin() {
+          var password = (passwordInput.value || "").trim();
+          if (!password) {
             setMessage("請先輸入密碼。", "error");
             passwordInput.focus();
             return;
           }
 
-          submitButton.disabled = true;
-          setMessage("正在驗證密碼...", "");
+          loginBtn.disabled = true;
+          setMessage("正在驗證密碼…", "");
 
           try {
-            const digest = await sha256(rawValue);
-            if (digest === PASSWORD_HASH) {
-              sessionStorage.setItem(SESSION_KEY, PASSWORD_HASH);
-              setMessage("登入成功，正在進入系統...", "success");
-              setTimeout(goToApp, 220);
-            } else {
-              setMessage("密碼不正確，請重新確認後再試。", "error");
-              passwordInput.select();
+            var hashed = await sha256Hex(password);
+            if (hashed !== PASSWORD_HASH) {
+              setMessage("密碼不正確，請再試一次。", "error");
+              return;
             }
-          } catch (error) {
-            console.error(error);
-            setMessage("目前無法完成密碼驗證，請重新整理頁面後再試。", "error");
-          } finally {
-            submitButton.disabled = false;
-          }
-        });
 
-        clearButton.addEventListener("click", () => {
+            try { sessionStorage.setItem(SESSION_KEY, PASSWORD_HASH); } catch (error) {}
+            setMessage("登入成功，正在進入 MES 系統…", "success");
+            window.location.replace(TARGET_URL);
+          } catch (error) {
+            setMessage("目前無法完成驗證，請重新整理頁面後再試。", "error");
+          } finally {
+            loginBtn.disabled = false;
+          }
+        }
+
+        loginBtn.addEventListener("click", handleLogin);
+        clearBtn.addEventListener("click", function () {
           passwordInput.value = "";
           setMessage("", "");
           passwordInput.focus();
         });
-
-        toggleVisibility.addEventListener("click", () => {
-          const isPassword = passwordInput.type === "password";
+        togglePasswordBtn.addEventListener("click", function () {
+          var isPassword = passwordInput.type === "password";
           passwordInput.type = isPassword ? "text" : "password";
-          toggleVisibility.textContent = isPassword ? "隱藏" : "顯示";
-          passwordInput.focus();
+          togglePasswordBtn.textContent = isPassword ? "隱藏" : "顯示";
+        });
+        passwordInput.addEventListener("keydown", function (event) {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            handleLogin();
+          }
         });
       })();
     </script>
