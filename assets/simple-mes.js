@@ -162,7 +162,7 @@ DW-810｜CNC線割機
               <div class="eyebrow">Simplified MES Dashboard</div>
               <h1>簡化版 MES 工時整理與排程預估</h1>
               <p>
-                只保留三個核心輸出：製令單流程表、品名規格標準工時表、排程預估表。系統會依照製令單號整理每站加工與等待，只有最後有 End 的製令單才納入品名規格標準工時。
+                只保留三個核心輸出：製令單流程表、品名規格 Lead Time 表、排程預估表。系統會依照製令單號整理每站加工與等待，只有最後有 End 的製令單才納入品名規格 Lead Time 分析。
               </p>
             </div>
             <div class="chip pending">固定版持續更新</div>
@@ -191,7 +191,7 @@ DW-810｜CNC線割機
           <div class="section-title">
             <div>
               <h3>搜尋與篩選</h3>
-              <p>可搜尋製令單號、品名規格、母件編號、需求料件、機台名稱與機台代號，並同步影響流程表、標準工時表與排程預估表。</p>
+              <p>可搜尋製令單號、品名規格、母件編號、需求料件、機台名稱與機台代號，並同步影響流程表、品名規格 Lead Time 表與排程預估表。</p>
             </div>
           </div>
           <div class="search-grid">
@@ -285,7 +285,7 @@ DW-810｜CNC線割機
               <div class="field-box">
                 <label for="excelInput">選擇資料檔案</label>
                 <input id="excelInput" class="file-input" type="file" accept=".xlsx,.xls,.csv" />
-                <div class="foot-note">匯入後會直接依製令單號整理流程，並產生品名規格標準工時與排程預估。</div>
+                <div class="foot-note">匯入後會直接依製令單號整理流程，並產生品名規格 Lead Time 表與排程預估。</div>
               </div>
             </div>
           </section>
@@ -340,8 +340,8 @@ DW-810｜CNC線割機
         <section class="panel section-block" id="standard-time-analysis">
           <div class="section-title">
             <div>
-              <h3>品名規格標準工時表</h3>
-              <p>只統計最後有 End 的完成製令單，依品名規格計算平均加工、等待、Lead Time 與建議排程工時。</p>
+              <h3>品名規格 Lead Time 表</h3>
+              <p>只統計最後有 End 的完成製令單，依品名規格計算平均加工、等待、Lead Time 與建議排程 Lead Time。</p>
             </div>
           </div>
           <div id="standardTable"></div>
@@ -351,7 +351,7 @@ DW-810｜CNC線割機
           <div class="section-title">
             <div>
               <h3>排程預估表</h3>
-              <p>新製令單或未完成製令單會先看品名規格是否已有標準工時；若沒有，標記需要人工估時。</p>
+              <p>新製令單或未完成製令單會先看品名規格是否已有 Lead Time 基準；若沒有，標記需要人工估時。</p>
             </div>
           </div>
           <div id="scheduleTable"></div>
@@ -3115,7 +3115,7 @@ DW-810｜CNC線割機
     const sourceLabel = scoped.includeArchiveInAnalysis && scoped.selectedArchiveYear
       ? `主資料 + ${scoped.selectedArchiveYear}年度歷史資料`
       : "主資料";
-    resultNote.textContent = `目前顯示 ${view.filteredWorkOrders.length} / ${scoped.workOrders.length} 張製令單｜標準工時 ${view.filteredStandards.length} 筆｜排程預估 ${view.filteredScheduleRows.length} 筆｜篩選：${labelMap[state.statusFilter] || "全部資料"}｜分析來源：${sourceLabel}${keyword ? `｜搜尋：${keyword}` : ""}`;
+    resultNote.textContent = `目前顯示 ${view.filteredWorkOrders.length} / ${scoped.workOrders.length} 張製令單｜Lead Time ${view.filteredStandards.length} 筆｜排程預估 ${view.filteredScheduleRows.length} 筆｜篩選：${labelMap[state.statusFilter] || "全部資料"}｜分析來源：${sourceLabel}${keyword ? `｜搜尋：${keyword}` : ""}`;
 
     Array.from(document.querySelectorAll("[data-status-filter]")).forEach((button) => {
       button.classList.toggle("is-active", button.dataset.statusFilter === state.statusFilter);
@@ -3258,7 +3258,7 @@ DW-810｜CNC線割機
             <button id="exportArchiveYearBtn" class="btn-primary" type="button">匯出 ${escapeHtml(selectedYear)} 年度歷史資料 Excel</button>
           </div>
         </div>
-        <div class="foot-note">年度會依資料中的最後一筆有效 End 自動建立，不會寫死年份。若勾選包含歷史資料一起分析，主畫面 KPI、流程與標準工時會改用主資料 + 所選年度歷史資料。</div>
+        <div class="foot-note">年度會依資料中的最後一筆有效 End 自動建立，不會寫死年份。若勾選包含歷史資料一起分析，主畫面 KPI、流程與品名規格 Lead Time 表會改用主資料 + 所選年度歷史資料。</div>
       </div>
       <div class="table-shell nested-table-shell">
         <table>
@@ -3517,12 +3517,12 @@ DW-810｜CNC線割機
     function renderStandardTable(view) {
     const container = document.getElementById("standardTable");
     if (!state.validRecords.length) {
-      container.innerHTML = `<div class="empty-card">目前還沒有可建立標準工時的資料。只有最後有 End 的完成製令單，才會依品名規格納入平均標準工時。</div>`;
+      container.innerHTML = `<div class="empty-card">目前還沒有可建立品名規格 Lead Time 表的資料。只有最後有 End 的完成製令單，才會依品名規格納入平均 Lead Time。</div>`;
       return;
     }
 
     if (!view.filteredStandards.length) {
-      container.innerHTML = `<div class="empty-card">目前沒有可建立標準工時的完成製令單。只有最後有 End 的製令單，才會依品名規格納入平均標準工時。</div>`;
+      container.innerHTML = `<div class="empty-card">目前沒有可建立品名規格 Lead Time 表的完成製令單。只有最後有 End 的製令單，才會依品名規格納入平均 Lead Time。</div>`;
       return;
     }
 
