@@ -1885,58 +1885,162 @@ DW-810｜CNC線割機
       .sort((a, b) => a.productSpec.localeCompare(b.productSpec, "zh-Hant"));
   }
 
+  function getProductFlowColumnHeader(column) {
+    if (!column) {
+      return "";
+    }
+    return column.type === "machine" ? column.label : `等待(${column.label})`;
+  }
+
+  function buildProductFlowRouteTableModel(routeGroup) {
+    const headerColumns = [
+      { type: "fixed", key: "workOrderNo", headerLabel: "製令單號" },
+      ...(routeGroup.displayColumns || []).map((column) => ({
+        ...column,
+        headerLabel: getProductFlowColumnHeader(column),
+      })),
+      { type: "fixed", key: "totalProcessingMs", headerLabel: "總工時" },
+      { type: "fixed", key: "totalWaitingMs", headerLabel: "總等待時間" },
+      { type: "fixed", key: "flowAllowanceMs", headerLabel: "總時間(含寬放1.3)" },
+    ];
+
+    const machineAverageMap = new Map((routeGroup.machineAverages || []).map((item) => [item.machineKey, item.averageMs]));
+    const waitingAverageMap = new Map((routeGroup.waitingAverages || []).map((item) => [item.transitionKey, item.averageMs]));
+
+    const bodyRows = (routeGroup.orders || []).map((order) =>
+      headerColumns.map((column) => {
+        if (column.key === "workOrderNo") {
+          return order.workOrderNo;
+        }
+        if (column.key === "totalProcessingMs") {
+          return formatDuration(order.totalProcessingMs);
+        }
+        if (column.key === "totalWaitingMs") {
+          return formatDuration(order.totalWaitingMs);
+        }
+        if (column.key === "flowAllowanceMs") {
+          return formatDuration(order.flowAllowanceMs);
+        }
+        if (column.type === "machine") {
+          return formatDuration(order.machineCellMap.get(column.machineKey) || 0);
+        }
+        if (column.type === "waiting") {
+          return formatDuration(order.transitionCellMap.get(column.transitionKey) || 0);
+        }
+        return "";
+      })
+    );
+
+    const footerRows = [
+      {
+        label: "分析樣本數",
+        cells: headerColumns.map((column, index) => {
+          if (index === 0) {
+            return "分析樣本數";
+          }
+          if (column.key === "totalProcessingMs") {
+            return `${routeGroup.analysisSampleCount} 筆`;
+          }
+          return "—";
+        }),
+      },
+      {
+        label: "平均加工時間",
+        cells: headerColumns.map((column, index) => {
+          if (index === 0) {
+            return "平均加工時間";
+          }
+          if (column.type === "machine") {
+            return formatDuration(machineAverageMap.get(column.machineKey) || 0);
+          }
+          if (column.key === "totalProcessingMs") {
+            return formatDuration(routeGroup.averageTotalProcessingMs);
+          }
+          return "—";
+        }),
+      },
+      {
+        label: "平均等待時間",
+        cells: headerColumns.map((column, index) => {
+          if (index === 0) {
+            return "平均等待時間";
+          }
+          if (column.type === "waiting") {
+            return formatDuration(waitingAverageMap.get(column.transitionKey) || 0);
+          }
+          if (column.key === "totalWaitingMs") {
+            return formatDuration(routeGroup.averageTotalWaitingMs);
+          }
+          return "—";
+        }),
+      },
+      {
+        label: "平均總工時 / 平均總等待時間 / 平均總時間(含寬放)",
+        cells: headerColumns.map((column, index) => {
+          if (index === 0) {
+            return "平均總工時 / 平均總等待時間 / 平均總時間(含寬放)";
+          }
+          if (column.key === "totalProcessingMs") {
+            return formatDuration(routeGroup.averageTotalProcessingMs);
+          }
+          if (column.key === "totalWaitingMs") {
+            return formatDuration(routeGroup.averageTotalWaitingMs);
+          }
+          if (column.key === "flowAllowanceMs") {
+            return formatDuration(routeGroup.averageAllowanceMs);
+          }
+          return "—";
+        }),
+      },
+    ];
+
+    return {
+      headerColumns,
+      bodyRows,
+      footerRows,
+    };
+  }
+
   function buildProductFlowExportSheets(groups) {
     const detailRows = [];
     const summaryRows = [];
 
     (groups || []).forEach((group) => {
+      detailRows.push([`品名規格：${group.productSpec}`]);
+      detailRows.push([
+        `分析樣本數：${group.analysisSampleCount} 筆`,
+        `平均總工時：${formatDuration(group.averageTotalProcessingMs)}`,
+        `平均等待時間：${formatDuration(group.averageTotalWaitingMs)}`,
+        `平均LeadTime：${formatDuration(group.averageLeadTimeMs)}`,
+        `平均總時間(含寬放1.3)：${formatDuration(group.averageAllowanceMs)}`,
+      ]);
+      summaryRows.push([`品名規格：${group.productSpec}`]);
+      summaryRows.push([
+        `分析樣本數：${group.analysisSampleCount} 筆`,
+        `平均總工時：${formatDuration(group.averageTotalProcessingMs)}`,
+        `平均等待時間：${formatDuration(group.averageTotalWaitingMs)}`,
+        `平均LeadTime：${formatDuration(group.averageLeadTimeMs)}`,
+        `平均總時間(含寬放1.3)：${formatDuration(group.averageAllowanceMs)}`,
+      ]);
+
       (group.routeGroups || []).forEach((routeGroup) => {
-        routeGroup.orders.forEach((order) => {
-          const row = {
-            品名規格: group.productSpec,
-            製令單號: order.workOrderNo,
-            流程路線: routeGroup.routeLabel,
-          };
+        const tableModel = buildProductFlowRouteTableModel(routeGroup);
+        const headerRow = tableModel.headerColumns.map((column) => column.headerLabel);
 
-          routeGroup.machineColumns.forEach((machine) => {
-            row[machine.stationName] = formatDuration(order.machineCellMap.get(machine.machineKey) || 0);
-          });
+        detailRows.push([`流程：${routeGroup.routeLabel}`]);
+        detailRows.push(headerRow);
+        tableModel.bodyRows.forEach((row) => detailRows.push(row));
+        tableModel.footerRows.forEach((row) => detailRows.push(row.cells));
+        detailRows.push([]);
 
-          routeGroup.waitingColumns.forEach((transition) => {
-            row[`等待(${transition.label})`] = formatDuration(order.transitionCellMap.get(transition.transitionKey) || 0);
-          });
-
-          row.總工時 = formatDuration(order.totalProcessingMs);
-          row.總等待時間 = formatDuration(order.totalWaitingMs);
-          row.LeadTime = formatDuration(order.flowLeadTimeMs);
-          row["總時間(含寬放1.3)"] = formatDuration(order.flowAllowanceMs);
-          row.分析樣本數 = routeGroup.analysisSampleCount;
-          row.平均總工時 = formatDuration(routeGroup.averageTotalProcessingMs);
-          row.平均總等待時間 = formatDuration(routeGroup.averageTotalWaitingMs);
-          row.平均LeadTime = formatDuration(routeGroup.averageLeadTimeMs);
-          row["平均總時間(含寬放1.3)"] = formatDuration(routeGroup.averageAllowanceMs);
-          detailRows.push(row);
-        });
-
-        const summaryRow = {
-          品名規格: group.productSpec,
-          流程路線: routeGroup.routeLabel,
-          分析樣本數: routeGroup.analysisSampleCount,
-          製令單數量: routeGroup.orderCount,
-        };
-
-        routeGroup.machineAverages.forEach((item) => {
-          summaryRow[`${item.stationName}_平均加工時間`] = formatDuration(item.averageMs);
-        });
-        routeGroup.waitingAverages.forEach((item) => {
-          summaryRow[`等待(${item.label})_平均等待時間`] = formatDuration(item.averageMs);
-        });
-        summaryRow.平均總工時 = formatDuration(routeGroup.averageTotalProcessingMs);
-        summaryRow.平均總等待時間 = formatDuration(routeGroup.averageTotalWaitingMs);
-        summaryRow.平均LeadTime = formatDuration(routeGroup.averageLeadTimeMs);
-        summaryRow["平均總時間(含寬放1.3)"] = formatDuration(routeGroup.averageAllowanceMs);
-        summaryRows.push(summaryRow);
+        summaryRows.push([`流程：${routeGroup.routeLabel}`]);
+        summaryRows.push(headerRow);
+        tableModel.footerRows.forEach((row) => summaryRows.push(row.cells));
+        summaryRows.push([]);
       });
+
+      detailRows.push([]);
+      summaryRows.push([]);
     });
 
     return {
@@ -3579,87 +3683,58 @@ DW-810｜CNC線割機
       .map((group) => {
         const routeTables = (group.routeGroups || [])
           .map((routeGroup) => {
-            const headerCells = routeGroup.displayColumns
+            const tableModel = buildProductFlowRouteTableModel(routeGroup);
+
+            const headerCells = tableModel.headerColumns
+              .slice(1, -3)
               .map((column) =>
                 column.type === "machine"
-                  ? `<th class="flow-dynamic-col">${escapeHtml(column.label)}</th>`
-                  : `<th class="flow-wait-col">等待(${escapeHtml(column.label)})</th>`
+                  ? `<th class="flow-dynamic-col">${escapeHtml(column.headerLabel)}</th>`
+                  : `<th class="flow-wait-col">${escapeHtml(column.headerLabel)}</th>`
               )
               .join("");
 
-            const bodyRows = routeGroup.orders
-              .map((order) => {
-                const dynamicCells = routeGroup.displayColumns
-                  .map((column) => {
-                    if (column.type === "machine") {
-                      return `<td class="mono">${formatDuration(order.machineCellMap.get(column.machineKey) || 0)}</td>`;
-                    }
-                    return `<td class="mono">${formatDuration(order.transitionCellMap.get(column.transitionKey) || 0)}</td>`;
-                  })
+            const bodyRows = tableModel.bodyRows
+              .map((row) => {
+                const dynamicCells = row
+                  .slice(1, -3)
+                  .map((value) => `<td class="mono">${escapeHtml(value)}</td>`)
                   .join("");
 
                 return `
                   <tr>
-                    <td class="mono primary-text">${escapeHtml(order.workOrderNo)}</td>
+                    <td class="mono primary-text">${escapeHtml(row[0])}</td>
                     ${dynamicCells}
-                    <td class="mono">${formatDuration(order.totalProcessingMs)}</td>
-                    <td class="mono">${formatDuration(order.totalWaitingMs)}</td>
-                    <td class="mono">${formatDuration(order.flowAllowanceMs)}</td>
+                    <td class="mono">${escapeHtml(row[row.length - 3])}</td>
+                    <td class="mono">${escapeHtml(row[row.length - 2])}</td>
+                    <td class="mono">${escapeHtml(row[row.length - 1])}</td>
                   </tr>
                 `;
               })
               .join("");
+            const footerRows = tableModel.footerRows
+              .map((footerRow) => {
+                const dynamicCells = footerRow.cells
+                  .slice(1, -3)
+                  .map((value) =>
+                    value === "—" ? `<td class="flow-table-muted">—</td>` : `<td class="mono">${escapeHtml(value)}</td>`
+                  )
+                  .join("");
+                const totalWork = footerRow.cells[footerRow.cells.length - 3];
+                const totalWaiting = footerRow.cells[footerRow.cells.length - 2];
+                const totalAllowance = footerRow.cells[footerRow.cells.length - 1];
 
-            const machineAverageMap = new Map(routeGroup.machineAverages.map((item) => [item.machineKey, item.averageMs]));
-            const waitingAverageMap = new Map(routeGroup.waitingAverages.map((item) => [item.transitionKey, item.averageMs]));
-
-            const sampleCountCells = routeGroup.displayColumns.map(() => `<td class="flow-table-muted">—</td>`).join("");
-            const averageMachineCells = routeGroup.displayColumns
-              .map((column) =>
-                column.type === "machine"
-                  ? `<td class="mono">${formatDuration(machineAverageMap.get(column.machineKey) || 0)}</td>`
-                  : `<td class="flow-table-muted">—</td>`
-              )
+                return `
+                  <tr class="product-flow-footer-row">
+                    <td class="product-flow-footer-title">${escapeHtml(footerRow.label)}</td>
+                    ${dynamicCells}
+                    ${totalWork === "—" ? `<td class="flow-table-muted">—</td>` : `<td class="mono">${escapeHtml(totalWork)}</td>`}
+                    ${totalWaiting === "—" ? `<td class="flow-table-muted">—</td>` : `<td class="mono">${escapeHtml(totalWaiting)}</td>`}
+                    ${totalAllowance === "—" ? `<td class="flow-table-muted">—</td>` : `<td class="mono">${escapeHtml(totalAllowance)}</td>`}
+                  </tr>
+                `;
+              })
               .join("");
-            const averageWaitingCells = routeGroup.displayColumns
-              .map((column) =>
-                column.type === "waiting"
-                  ? `<td class="mono">${formatDuration(waitingAverageMap.get(column.transitionKey) || 0)}</td>`
-                  : `<td class="flow-table-muted">—</td>`
-              )
-              .join("");
-            const totalSummaryCells = routeGroup.displayColumns.map(() => `<td class="flow-table-muted">—</td>`).join("");
-
-            const footerRows = `
-              <tr class="product-flow-footer-row">
-                <td class="product-flow-footer-title">分析樣本數</td>
-                ${sampleCountCells}
-                <td class="mono">${routeGroup.analysisSampleCount} 筆</td>
-                <td class="flow-table-muted">—</td>
-                <td class="flow-table-muted">—</td>
-              </tr>
-              <tr class="product-flow-footer-row">
-                <td class="product-flow-footer-title">平均加工時間</td>
-                ${averageMachineCells}
-                <td class="mono">${formatDuration(routeGroup.averageTotalProcessingMs)}</td>
-                <td class="flow-table-muted">—</td>
-                <td class="flow-table-muted">—</td>
-              </tr>
-              <tr class="product-flow-footer-row">
-                <td class="product-flow-footer-title">平均等待時間</td>
-                ${averageWaitingCells}
-                <td class="flow-table-muted">—</td>
-                <td class="mono">${formatDuration(routeGroup.averageTotalWaitingMs)}</td>
-                <td class="flow-table-muted">—</td>
-              </tr>
-              <tr class="product-flow-footer-row">
-                <td class="product-flow-footer-title">平均總工時 / 平均總等待時間 / 平均總時間(含寬放)</td>
-                ${totalSummaryCells}
-                <td class="mono">${formatDuration(routeGroup.averageTotalProcessingMs)}</td>
-                <td class="mono">${formatDuration(routeGroup.averageTotalWaitingMs)}</td>
-                <td class="mono">${formatDuration(routeGroup.averageAllowanceMs)}</td>
-              </tr>
-            `;
 
             return `
               <div class="product-flow-route-card">
@@ -4294,8 +4369,13 @@ DW-810｜CNC線割機
   }
 
   function appendSheet(workbook, name, rows) {
-    const safeRows = rows && rows.length ? rows : [{ 提示: "目前沒有資料" }];
-    const worksheet = window.XLSX.utils.json_to_sheet(safeRows);
+    let worksheet;
+    if (Array.isArray(rows) && rows.length && Array.isArray(rows[0])) {
+      worksheet = window.XLSX.utils.aoa_to_sheet(rows);
+    } else {
+      const safeRows = rows && rows.length ? rows : [{ 提示: "目前沒有資料" }];
+      worksheet = window.XLSX.utils.json_to_sheet(safeRows);
+    }
     window.XLSX.utils.book_append_sheet(workbook, worksheet, name);
   }
 
