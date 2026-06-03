@@ -748,6 +748,38 @@ DW-810｜CNC線割機
     }
   }
 
+  function ensureExcelExportReady() {
+    if (!window.ExcelJS) {
+      throw new Error("目前沒有載入 Excel 匯出套件，請重新整理後再試。");
+    }
+  }
+
+  function createExcelWorkbook() {
+    ensureExcelExportReady();
+    const workbook = new window.ExcelJS.Workbook();
+    workbook.creator = "MES 工時系統";
+    workbook.company = "OpenAI";
+    workbook.created = new Date();
+    workbook.modified = new Date();
+    return workbook;
+  }
+
+  async function saveExcelWorkbook(workbook, fileName) {
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob(
+      [buffer],
+      { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }
+    );
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
   async function parseWorkbookFile(file) {
     const fileName = cleanString(file.name);
     const extension = fileName.includes(".") ? fileName.split(".").pop().toLowerCase() : "";
@@ -2084,80 +2116,45 @@ DW-810｜CNC線割機
     return typeof value === "string" && /^\d+:\d{2}:\d{2}$/.test(value.trim());
   }
 
-  function getCellAddress(rowIndex, colIndex) {
-    return window.XLSX.utils.encode_cell({ r: rowIndex, c: colIndex });
-  }
-
-  function buildCellStyle(options) {
-    const fillColor = options.fillColor || null;
-    const align = options.align || "left";
-    const bold = options.bold || false;
-    return {
-      font: {
-        bold,
-        name: "Microsoft JhengHei",
-      },
-      alignment: {
-        horizontal: align,
-        vertical: "center",
-        wrapText: true,
-      },
-      border: {
-        top: { style: "thin", color: { rgb: "D9B8D1" } },
-        bottom: { style: "thin", color: { rgb: "D9B8D1" } },
-        left: { style: "thin", color: { rgb: "D9B8D1" } },
-        right: { style: "thin", color: { rgb: "D9B8D1" } },
-      },
-      fill: fillColor
-        ? {
-            patternType: "solid",
-            fgColor: { rgb: fillColor },
-          }
-        : undefined,
-    };
-  }
-
   function applyProductFlowSheetStyle(worksheet, rows, rowRoles) {
     if (!rows || !rows.length) {
       return;
     }
 
     const maxCols = rows.reduce((max, row) => Math.max(max, row.length), 0);
-    const merges = [];
     const widths = new Array(maxCols).fill(10);
+    const border = {
+      top: { style: "thin", color: { argb: "FFD9B8D1" } },
+      bottom: { style: "thin", color: { argb: "FFD9B8D1" } },
+      left: { style: "thin", color: { argb: "FFD9B8D1" } },
+      right: { style: "thin", color: { argb: "FFD9B8D1" } },
+    };
 
-    const styles = {
-      title: buildCellStyle({ fillColor: "EADCFB", align: "left", bold: true }),
-      kpi: buildCellStyle({ fillColor: "F3ECFF", align: "left", bold: true }),
-      route: buildCellStyle({ fillColor: "FBE0E0", align: "left", bold: true }),
-      header: buildCellStyle({ fillColor: "F9D7E8", align: "center", bold: true }),
-      footer: buildCellStyle({ fillColor: "FCEAF2", align: "center", bold: false }),
-      body: buildCellStyle({ align: "left", bold: false }),
-      blank: buildCellStyle({ align: "left", bold: false }),
+    const roleStyles = {
+      title: { fill: "FF5B3A8E", fontColor: "FFFFFFFF", bold: true, align: "left" },
+      kpi: { fill: "FFEADCFB", fontColor: "FF4C1D95", bold: true, align: "left" },
+      route: { fill: "FFF9D7D7", fontColor: "FF9F1239", bold: true, align: "left" },
+      header: { fill: "FFF9D7E8", fontColor: "FF831843", bold: true, align: "center" },
+      footer: { fill: "FFFCEAF2", fontColor: "FF6B214B", bold: false, align: "center" },
+      body: { fill: null, fontColor: "FF334155", bold: false, align: "left" },
+      blank: { fill: null, fontColor: "FF334155", bold: false, align: "left" },
     };
 
     rows.forEach((row, rowIndex) => {
       const role = rowRoles && rowRoles[rowIndex] ? rowRoles[rowIndex] : "body";
+      const excelRow = worksheet.getRow(rowIndex + 1);
       const normalized = [...row];
       while (normalized.length < maxCols) {
         normalized.push("");
       }
-      rows[rowIndex] = normalized;
-
-      if (role === "title") {
-        merges.push({ s: { r: rowIndex, c: 0 }, e: { r: rowIndex, c: maxCols - 1 } });
-      }
 
       normalized.forEach((value, colIndex) => {
-        const address = getCellAddress(rowIndex, colIndex);
-        if (!worksheet[address]) {
-          worksheet[address] = { t: "s", v: value };
-        }
-
+        const cell = excelRow.getCell(colIndex + 1);
         const text = value == null ? "" : String(value);
+        cell.value = text;
         widths[colIndex] = Math.max(widths[colIndex], Math.min(text.length + 4, 42));
 
-        let style = styles[role] || styles.body;
+        const roleStyle = roleStyles[role] || roleStyles.body;
         const shouldCenter =
           role === "header" ||
           (role === "footer" && colIndex > 0) ||
@@ -2165,27 +2162,34 @@ DW-810｜CNC線割機
           /筆$/.test(text) ||
           /^—$/.test(text);
 
-        if ((role === "body" || role === "footer") && shouldCenter) {
-          style = buildCellStyle({
-            fillColor: role === "footer" ? "FCEAF2" : null,
-            align: "center",
-            bold: false,
-          });
+        cell.font = {
+          name: "Microsoft JhengHei",
+          bold: roleStyle.bold,
+          color: { argb: roleStyle.fontColor },
+        };
+        cell.alignment = {
+          horizontal: shouldCenter ? "center" : roleStyle.align,
+          vertical: "middle",
+          wrapText: true,
+        };
+        cell.border = border;
+        if (roleStyle.fill) {
+          cell.fill = {
+            type: "pattern",
+            pattern: "solid",
+            fgColor: { argb: roleStyle.fill },
+          };
         }
-
-        worksheet[address].s = style;
       });
+
+      if (role === "title" || role === "route") {
+        worksheet.mergeCells(rowIndex + 1, 1, rowIndex + 1, maxCols);
+      }
+      excelRow.commit();
     });
 
-    worksheet["!cols"] = widths.map((wch) => ({ wch: Math.max(wch, 12) }));
-    worksheet["!merges"] = merges;
-    worksheet["!freeze"] = {
-      xSplit: 0,
-      ySplit: 4,
-      topLeftCell: "A5",
-      activePane: "bottomLeft",
-      state: "frozen",
-    };
+    worksheet.views = [{ state: "frozen", xSplit: 0, ySplit: 4, topLeftCell: "A5" }];
+    worksheet.columns = widths.map((wch) => ({ width: Math.max(wch, 12) }));
   }
 
   function calculateStationWaitingDetails(workOrders) {
@@ -4190,17 +4194,16 @@ DW-810｜CNC線割機
       .sort((a, b) => b.totalProcessingMs - a.totalProcessingMs || a.partNo.localeCompare(b.partNo));
   }
 
-  function exportRangeReport(mode) {
+  async function exportRangeReport(mode) {
     if (!state.validRecords.length) {
       setMessage("目前沒有可匯出的資料。", "error");
       return;
     }
 
     try {
-      ensureXlsxReady();
       const range = resolveExportRange(mode);
       const scoped = getScopedData(range);
-      const workbook = window.XLSX.utils.book_new();
+      const workbook = createExcelWorkbook();
       const sheets = buildAnalysisSheets(scoped);
 
       appendSheet(workbook, "製令單彙總", sheets.workOrderSheet);
@@ -4216,23 +4219,22 @@ DW-810｜CNC線割機
       appendSheet(workbook, "原始資料", sheets.rawSheet);
 
       const fileName = `MES分析報表_${buildRangeFileLabel(range)}.xlsx`;
-      window.XLSX.writeFile(workbook, fileName);
+      await saveExcelWorkbook(workbook, fileName);
       setMessage(`已匯出：${fileName}`, "info");
     } catch (error) {
       setMessage(error.message || "Excel 匯出失敗。", "error");
     }
   }
 
-  function exportAllAnalysisReport() {
+  async function exportAllAnalysisReport() {
     if (!state.validRecords.length) {
       setMessage("目前沒有可匯出的完整分析資料。", "error");
       return;
     }
 
     try {
-      ensureXlsxReady();
       const scoped = getScopedData();
-      const workbook = window.XLSX.utils.book_new();
+      const workbook = createExcelWorkbook();
       const sheets = buildAnalysisSheets(scoped);
 
       appendSheet(workbook, "製令單彙總", sheets.workOrderSheet);
@@ -4248,7 +4250,7 @@ DW-810｜CNC線割機
       appendSheet(workbook, "原始資料", sheets.rawSheet);
 
       const fileName = `MES全部分析報表_${buildRangeFileLabel(scoped.range)}.xlsx`;
-      window.XLSX.writeFile(workbook, fileName);
+      await saveExcelWorkbook(workbook, fileName);
       setMessage(`已匯出：${fileName}`, "info");
     } catch (error) {
       setMessage(error.message || "完整分析報表匯出失敗。", "error");
@@ -4388,14 +4390,13 @@ DW-810｜CNC線割機
     };
   }
 
-  function exportProductFlowReport() {
+  async function exportProductFlowReport() {
     if (!state.validRecords.length) {
       setMessage("目前沒有可匯出的品名規格流程分析資料。", "error");
       return;
     }
 
     try {
-      ensureXlsxReady();
       const scoped = getScopedData();
       const view = getFilteredView(scoped);
       const productFlowGroups = view.filteredProductFlowAnalysis || [];
@@ -4404,27 +4405,26 @@ DW-810｜CNC線割機
         return;
       }
 
-      const workbook = window.XLSX.utils.book_new();
+      const workbook = createExcelWorkbook();
       const sheets = buildProductFlowExportSheets(productFlowGroups);
       appendSheet(workbook, "品名規格流程分析", sheets.detailRows);
       appendSheet(workbook, "品名規格流程統計", sheets.summaryRows);
 
       const fileName = `MES品名規格流程分析_${buildRangeFileLabel(scoped.range)}.xlsx`;
-      window.XLSX.writeFile(workbook, fileName);
+      await saveExcelWorkbook(workbook, fileName);
       setMessage(`已匯出：${fileName}`, "info");
     } catch (error) {
       setMessage(error.message || "品名規格流程分析匯出失敗。", "error");
     }
   }
 
-    function exportWorkOrderDetailReport(workOrderNo) {
+    async function exportWorkOrderDetailReport(workOrderNo) {
     if (!state.validRecords.length) {
       setMessage("目前沒有可匯出的工單資料。", "error");
       return;
     }
 
     try {
-      ensureXlsxReady();
       const scoped = getScopedData();
       const order = scoped.workOrders.find((item) => item.workOrderNo === workOrderNo);
       if (!order) {
@@ -4432,7 +4432,7 @@ DW-810｜CNC線割機
         return;
       }
 
-      const workbook = window.XLSX.utils.book_new();
+      const workbook = createExcelWorkbook();
       const summarySheet = [
         {
           製令單號: order.workOrderNo,
@@ -4500,28 +4500,80 @@ DW-810｜CNC線割機
       appendSheet(workbook, "原始資料", rawSheet);
 
       const fileName = `MES工單分析_${order.workOrderNo}.xlsx`;
-      window.XLSX.writeFile(workbook, fileName);
+      await saveExcelWorkbook(workbook, fileName);
       setMessage(`已匯出：${fileName}`, "info");
     } catch (error) {
       setMessage(error.message || "工單匯出失敗。", "error");
     }
   }
 
+  function applyBasicSheetStyle(worksheet) {
+    const border = {
+      top: { style: "thin", color: { argb: "FFD9B8D1" } },
+      bottom: { style: "thin", color: { argb: "FFD9B8D1" } },
+      left: { style: "thin", color: { argb: "FFD9B8D1" } },
+      right: { style: "thin", color: { argb: "FFD9B8D1" } },
+    };
+    const widths = [];
+
+    worksheet.eachRow((row, rowNumber) => {
+      row.eachCell((cell, colNumber) => {
+        const text = cell.value == null ? "" : String(cell.value);
+        widths[colNumber - 1] = Math.max(widths[colNumber - 1] || 12, Math.min(text.length + 4, 42));
+        cell.font = {
+          name: "Microsoft JhengHei",
+          bold: rowNumber === 1,
+          color: { argb: rowNumber === 1 ? "FF831843" : "FF334155" },
+        };
+        cell.alignment = {
+          horizontal:
+            rowNumber === 1 || isDurationString(text) || /%$/.test(text) || /^—$/.test(text) ? "center" : "left",
+          vertical: "middle",
+          wrapText: true,
+        };
+        cell.border = border;
+        if (rowNumber === 1) {
+          cell.fill = {
+            type: "pattern",
+            pattern: "solid",
+            fgColor: { argb: "FFF9D7E8" },
+          };
+        }
+      });
+    });
+
+    worksheet.columns.forEach((column, index) => {
+      column.width = Math.max(widths[index] || 12, 12);
+    });
+  }
+
   function appendSheet(workbook, name, rows) {
-    let worksheet;
+    const worksheet = workbook.addWorksheet(name);
+
     if (rows && typeof rows === "object" && Array.isArray(rows.rows)) {
       const safeRows = rows.rows.length ? rows.rows : [["目前沒有資料"]];
-      worksheet = window.XLSX.utils.aoa_to_sheet(safeRows);
+      safeRows.forEach((row) => worksheet.addRow(row));
       if (rows.styledKind === "productFlow") {
         applyProductFlowSheetStyle(worksheet, safeRows, rows.rowRoles || []);
+      } else {
+        applyBasicSheetStyle(worksheet);
       }
-    } else if (Array.isArray(rows) && rows.length && Array.isArray(rows[0])) {
-      worksheet = window.XLSX.utils.aoa_to_sheet(rows);
-    } else {
-      const safeRows = rows && rows.length ? rows : [{ 提示: "目前沒有資料" }];
-      worksheet = window.XLSX.utils.json_to_sheet(safeRows);
+      return;
     }
-    window.XLSX.utils.book_append_sheet(workbook, worksheet, name);
+
+    if (Array.isArray(rows) && rows.length && Array.isArray(rows[0])) {
+      rows.forEach((row) => worksheet.addRow(row));
+      applyBasicSheetStyle(worksheet);
+      return;
+    }
+
+    const safeRows = rows && rows.length ? rows : [{ 提示: "目前沒有資料" }];
+    const headers = Object.keys(safeRows[0]);
+    worksheet.addRow(headers);
+    safeRows.forEach((row) => {
+      worksheet.addRow(headers.map((header) => row[header] == null ? "" : row[header]));
+    });
+    applyBasicSheetStyle(worksheet);
   }
 
   function applyQuickRangePreset(preset) {
