@@ -2991,23 +2991,27 @@ DW-810｜CNC線割機
     const baseRecords = state.includeArchiveInAnalysis
       ? [...(archiveData.activeRecords || []), ...includedArchiveRecords]
       : archiveData.activeRecords || state.validRecords;
-    const cacheKey = `${serializeRange(activeRange)}::${baseRecords.length}::${selectedArchiveYear}::${state.includeArchiveInAnalysis ? "includeArchive" : "activeOnly"}::${state.utilizationConfig.dailyHours}::${state.utilizationConfig.excludeHolidays ? "exclude" : "keep"}`;
+    const allValidBaseRecords = state.validRecords || [];
+    const cacheKey = `${serializeRange(activeRange)}::${baseRecords.length}::${allValidBaseRecords.length}::${selectedArchiveYear}::${state.includeArchiveInAnalysis ? "includeArchive" : "activeOnly"}::${state.utilizationConfig.dailyHours}::${state.utilizationConfig.excludeHolidays ? "exclude" : "keep"}`;
     if (state.rangeCache.has(cacheKey)) {
       return state.rangeCache.get(cacheKey);
     }
 
     const filteredRecords = filterByDateRange(baseRecords, activeRange);
     const workOrders = buildWorkOrders(filteredRecords);
+    const analysisRecords = filterByDateRange(allValidBaseRecords, activeRange);
+    const analysisWorkOrders = buildWorkOrders(analysisRecords);
     const effectiveRange = materializeRange(activeRange, filteredRecords);
     const machineMetrics = buildMachineMetrics(workOrders, filteredRecords, effectiveRange);
     applyScopedMachineUtilization(workOrders, machineMetrics, effectiveRange);
-    const standards = buildStandards(workOrders);
+    const standards = buildStandards(analysisWorkOrders);
     const scheduleRows = buildScheduleRows(workOrders, standards);
-    const comparisons = buildProductSpecComparisons(workOrders);
+    const comparisons = buildProductSpecComparisons(analysisWorkOrders);
     const waitingAnalytics = buildWaitingAnalytics(workOrders, machineMetrics);
     const machineUsageAnalysis = buildMachineUsageAnalysis(workOrders);
     const operatorSummaries = calculateOperatorSummary(workOrders);
     const productOperatorGroups = calculateProductOperatorAnalysis(workOrders);
+    const productFlowAnalysis = buildProductSpecFlowAnalysis(analysisWorkOrders, state.productFlowSearchTerm);
 
     const scoped = {
       range: activeRange,
@@ -3015,10 +3019,14 @@ DW-810｜CNC線割機
       sourceRecords: baseRecords,
       filteredRecords,
       workOrders,
+      analysisSourceRecords: allValidBaseRecords,
+      analysisFilteredRecords: analysisRecords,
+      analysisWorkOrders,
       machineMetrics,
       standards,
       scheduleRows,
       comparisons,
+      productFlowAnalysis,
       waitingAnalytics,
       machineUsageAnalysis,
       operatorSummaries,
@@ -3057,11 +3065,12 @@ DW-810｜CNC線割機
     const keyword = normalizeSearchText(state.searchTerm);
     const filteredWorkOrders = scoped.workOrders.filter((order) => matchesStatusFilter(order) && matchesSearchKeyword(order, keyword));
     const filteredRecords = filteredWorkOrders.flatMap((order) => order.rawRecords || []);
+    const filteredAnalysisWorkOrders = (scoped.analysisWorkOrders || []).filter((order) => matchesStatusFilter(order) && matchesSearchKeyword(order, keyword));
     const filteredMachineMetrics = buildMachineMetrics(filteredWorkOrders, filteredRecords, scoped.effectiveRange);
-    const filteredStandards = buildStandards(filteredWorkOrders);
+    const filteredStandards = buildStandards(filteredAnalysisWorkOrders);
     const filteredScheduleRows = buildScheduleRows(filteredWorkOrders, filteredStandards);
-    const filteredComparisons = buildProductSpecComparisons(filteredWorkOrders);
-    const filteredProductFlowAnalysis = buildProductSpecFlowAnalysis(filteredWorkOrders, state.productFlowSearchTerm);
+    const filteredComparisons = buildProductSpecComparisons(filteredAnalysisWorkOrders);
+    const filteredProductFlowAnalysis = buildProductSpecFlowAnalysis(filteredAnalysisWorkOrders, state.productFlowSearchTerm);
     const filteredWaitingAnalytics = buildWaitingAnalytics(filteredWorkOrders, filteredMachineMetrics);
     const filteredMachineUsageAnalysis = buildMachineUsageAnalysis(filteredWorkOrders);
     const filteredOperatorSummaries = calculateOperatorSummary(filteredWorkOrders);
@@ -3079,6 +3088,7 @@ DW-810｜CNC線割機
 
     return {
       filteredWorkOrders,
+      filteredAnalysisWorkOrders,
       filteredMachineMetrics,
       filteredStandards,
       filteredScheduleRows,
@@ -4615,7 +4625,7 @@ DW-810｜CNC線割機
   }
 
   function buildAnalysisSheets(scoped) {
-    const productFlowGroups = buildProductSpecFlowAnalysis(scoped.workOrders, "");
+    const productFlowGroups = buildProductSpecFlowAnalysis(scoped.analysisWorkOrders || scoped.workOrders, "");
     const productFlowSheets = buildProductFlowExportSheets(productFlowGroups);
     const workOrderSheet = scoped.workOrders.map((order) => ({
       製令單號: order.workOrderNo,
