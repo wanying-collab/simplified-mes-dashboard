@@ -70,6 +70,14 @@ DW-810｜CNC線割機
     rawRows: [],
     validRecords: [],
     invalidRecords: [],
+    archiveData: {
+      activeRecords: [],
+      archivedByYear: {},
+      archivedOrdersByYear: {},
+      archiveSummary: [],
+    },
+    selectedArchiveYear: "",
+    includeArchiveInAnalysis: false,
     searchTerm: "",
     productFlowSearchTerm: "",
     selectedOperator: "",
@@ -307,6 +315,16 @@ DW-810｜CNC線割機
           </div>
           <div id="summaryGrid" class="summary-grid"></div>
           <div id="messageBox" class="message-box" style="display:none"></div>
+        </section>
+
+        <section class="panel section-block" id="archive-analysis">
+          <div class="section-title">
+            <div>
+              <h3>歷史資料年度歸檔</h3>
+              <p>已完成 / 已結案的製令單會依最後一筆有效 End 的年度歸檔保存；主畫面預設只分析未結案主資料，需要時可把指定年度歷史資料一起帶入分析。</p>
+            </div>
+          </div>
+          <div id="archiveSection"></div>
         </section>
 
         <section class="panel section-block" id="workorder-analysis">
@@ -623,6 +641,22 @@ DW-810｜CNC線割機
         return;
       }
 
+      if (target.id === "viewArchiveYearBtn") {
+        state.selectedArchiveYear = cleanString(document.getElementById("archiveYearSelect")?.value);
+        renderAll();
+        const archiveSection = document.getElementById("archive-analysis");
+        if (archiveSection) {
+          archiveSection.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+        return;
+      }
+
+      if (target.id === "exportArchiveYearBtn") {
+        const year = cleanString(document.getElementById("archiveYearSelect")?.value);
+        exportYearlyArchiveReport(year);
+        return;
+      }
+
       const operatorLink = target.closest("[data-operator-link]");
       if (operatorLink) {
         event.preventDefault();
@@ -644,6 +678,28 @@ DW-810｜CNC線割機
         return;
       }
       exportWorkOrderDetailReport(workOrderNo);
+    });
+
+    root.addEventListener("change", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement)) {
+        return;
+      }
+
+      if (target.id === "archiveYearSelect") {
+        state.selectedArchiveYear = cleanString(target.value);
+        if (state.includeArchiveInAnalysis) {
+          state.rangeCache.clear();
+          renderAll();
+        }
+        return;
+      }
+
+      if (target.id === "includeArchiveToggle") {
+        state.includeArchiveInAnalysis = !!target.checked;
+        state.rangeCache.clear();
+        renderAll();
+      }
     });
   }
 
@@ -913,9 +969,71 @@ DW-810｜CNC線割機
     state.rawRows = rows;
     state.validRecords = validRecords;
     state.invalidRecords = invalidRecords;
+    state.archiveData = buildYearlyArchiveData(validRecords);
+    const archiveYears = state.archiveData.archiveSummary.map((item) => String(item.year));
+    state.selectedArchiveYear = archiveYears.includes(state.selectedArchiveYear) ? state.selectedArchiveYear : archiveYears[0] || "";
     syncMachineMaster(validRecords);
     state.rangeCache = new Map();
     renderAll();
+  }
+
+  function buildYearlyArchiveData(records) {
+    const activeRecords = [];
+    const archivedByYear = {};
+    const archivedOrdersByYear = {};
+    const archiveSummaryMap = new Map();
+    const workOrders = buildWorkOrders(records || []);
+
+    workOrders.forEach((order) => {
+      if (!order.completed || !(order.archiveEndedAt instanceof Date)) {
+        activeRecords.push(...(order.rawRecords || []));
+        return;
+      }
+
+      const year = String(order.archiveEndedAt.getFullYear());
+      if (!archivedByYear[year]) {
+        archivedByYear[year] = [];
+        archivedOrdersByYear[year] = [];
+      }
+      archivedByYear[year].push(...(order.rawRecords || []));
+      archivedOrdersByYear[year].push(order);
+
+      if (!archiveSummaryMap.has(year)) {
+        archiveSummaryMap.set(year, {
+          year,
+          workOrderCount: 0,
+          recordCount: 0,
+          totalProcessingMs: 0,
+          totalWaitingMs: 0,
+          leadTimes: [],
+        });
+      }
+
+      const target = archiveSummaryMap.get(year);
+      target.workOrderCount += 1;
+      target.recordCount += (order.rawRecords || []).length;
+      target.totalProcessingMs += normalizeDuration(order.totalProcessingMs);
+      target.totalWaitingMs += normalizeDuration(order.totalWaitingMs);
+      target.leadTimes.push(normalizeDuration(order.leadTimeMs));
+    });
+
+    const archiveSummary = Array.from(archiveSummaryMap.values())
+      .map((item) => ({
+        year: item.year,
+        workOrderCount: item.workOrderCount,
+        recordCount: item.recordCount,
+        totalProcessingMs: item.totalProcessingMs,
+        totalWaitingMs: item.totalWaitingMs,
+        averageLeadTimeMs: item.leadTimes.length ? average(item.leadTimes) : 0,
+      }))
+      .sort((a, b) => Number(b.year) - Number(a.year));
+
+    return {
+      activeRecords,
+      archivedByYear,
+      archivedOrdersByYear,
+      archiveSummary,
+    };
   }
 
   function mapRowToRecord(row, index) {
@@ -982,6 +1100,7 @@ DW-810｜CNC線割機
     const endRecords = records.filter((item) => item.actionStatus === "End");
     const firstStartRecord = startRecords[0] || null;
     const firstEndRecord = endRecords[0] || null;
+    const latestEndRecord = endRecords.length ? endRecords[endRecords.length - 1] : null;
     const duplicateEndRecords = firstEndRecord ? endRecords.slice(1) : [];
     const anomalies = [];
     const notes = [];
@@ -1115,6 +1234,7 @@ DW-810｜CNC線割機
     const completed = !!firstEndRecord;
     const startedAt = firstStartRecord ? firstStartRecord.recordedAt : records[0].recordedAt;
     const finishedAt = completed ? firstEndRecord.recordedAt : null;
+    const archiveEndedAt = completed ? (latestEndRecord ? latestEndRecord.recordedAt : finishedAt) : null;
     const latestRecordedAt = records[records.length - 1] ? records[records.length - 1].recordedAt : startedAt;
     const stationTransitions = buildStationTransitions(stations);
     stations.forEach((station) => applyStationUtilization(station, records));
@@ -1198,6 +1318,8 @@ DW-810｜CNC線割機
       completed,
       startedAt,
       finishedAt,
+      archiveEndedAt,
+      archiveYear: archiveEndedAt instanceof Date ? String(archiveEndedAt.getFullYear()) : "",
       latestRecordedAt,
       flowHint: resolveFlowHint(stations, firstEndRecord, completed, duplicateEndRecords, proxyEndInfo),
       duplicateEndCount: duplicateEndRecords.length,
@@ -2856,12 +2978,25 @@ DW-810｜CNC線割機
 
   function getScopedData(rangeOverride) {
     const activeRange = rangeOverride || resolveActiveDateRange();
-    const cacheKey = `${serializeRange(activeRange)}::${state.validRecords.length}::${state.utilizationConfig.dailyHours}::${state.utilizationConfig.excludeHolidays ? "exclude" : "keep"}`;
+    const archiveData = state.archiveData || {
+      activeRecords: state.validRecords,
+      archivedByYear: {},
+      archivedOrdersByYear: {},
+      archiveSummary: [],
+    };
+    const selectedArchiveYear = cleanString(state.selectedArchiveYear);
+    const includedArchiveRecords = state.includeArchiveInAnalysis && selectedArchiveYear && archiveData.archivedByYear[selectedArchiveYear]
+      ? archiveData.archivedByYear[selectedArchiveYear]
+      : [];
+    const baseRecords = state.includeArchiveInAnalysis
+      ? [...(archiveData.activeRecords || []), ...includedArchiveRecords]
+      : archiveData.activeRecords || state.validRecords;
+    const cacheKey = `${serializeRange(activeRange)}::${baseRecords.length}::${selectedArchiveYear}::${state.includeArchiveInAnalysis ? "includeArchive" : "activeOnly"}::${state.utilizationConfig.dailyHours}::${state.utilizationConfig.excludeHolidays ? "exclude" : "keep"}`;
     if (state.rangeCache.has(cacheKey)) {
       return state.rangeCache.get(cacheKey);
     }
 
-    const filteredRecords = filterByDateRange(state.validRecords, activeRange);
+    const filteredRecords = filterByDateRange(baseRecords, activeRange);
     const workOrders = buildWorkOrders(filteredRecords);
     const effectiveRange = materializeRange(activeRange, filteredRecords);
     const machineMetrics = buildMachineMetrics(workOrders, filteredRecords, effectiveRange);
@@ -2877,6 +3012,7 @@ DW-810｜CNC線割機
     const scoped = {
       range: activeRange,
       effectiveRange,
+      sourceRecords: baseRecords,
       filteredRecords,
       workOrders,
       machineMetrics,
@@ -2887,6 +3023,10 @@ DW-810｜CNC線割機
       machineUsageAnalysis,
       operatorSummaries,
       productOperatorGroups,
+      archiveData,
+      selectedArchiveYear,
+      includedArchiveRecords,
+      includeArchiveInAnalysis: state.includeArchiveInAnalysis,
     };
     state.rangeCache.set(cacheKey, scoped);
     return scoped;
@@ -2899,6 +3039,7 @@ DW-810｜CNC線割機
     renderRangeLabel(scoped.range);
     renderFilterState(view, scoped);
     renderSummary(view, scoped);
+    renderArchiveSection(scoped);
     renderMessage();
     renderFlowTable(view);
     renderStandardTable(view);
@@ -2961,7 +3102,10 @@ DW-810｜CNC線割機
       anomaly: "只看異常資料",
     };
     const keyword = cleanString(state.searchTerm);
-    resultNote.textContent = `目前顯示 ${view.filteredWorkOrders.length} / ${scoped.workOrders.length} 張製令單｜標準工時 ${view.filteredStandards.length} 筆｜排程預估 ${view.filteredScheduleRows.length} 筆｜篩選：${labelMap[state.statusFilter] || "全部資料"}${keyword ? `｜搜尋：${keyword}` : ""}`;
+    const sourceLabel = scoped.includeArchiveInAnalysis && scoped.selectedArchiveYear
+      ? `主資料 + ${scoped.selectedArchiveYear}年度歷史資料`
+      : "主資料";
+    resultNote.textContent = `目前顯示 ${view.filteredWorkOrders.length} / ${scoped.workOrders.length} 張製令單｜標準工時 ${view.filteredStandards.length} 筆｜排程預估 ${view.filteredScheduleRows.length} 筆｜篩選：${labelMap[state.statusFilter] || "全部資料"}｜分析來源：${sourceLabel}${keyword ? `｜搜尋：${keyword}` : ""}`;
 
     Array.from(document.querySelectorAll("[data-status-filter]")).forEach((button) => {
       button.classList.toggle("is-active", button.dataset.statusFilter === state.statusFilter);
@@ -2994,6 +3138,137 @@ DW-810｜CNC線割機
       buildSummaryCard("不含假日利用率", formatPercentage(utilization.withoutHolidayUtilization), "可用工時排除未開工假日"),
       buildSummaryCard("全部資料數", String(scoped.workOrders.length || 0), "可搭配搜尋與篩選查看"),
     ].join("");
+  }
+
+  function renderArchiveSection(scoped) {
+    const container = document.getElementById("archiveSection");
+    if (!container) {
+      return;
+    }
+
+    const archiveData = state.archiveData || { archiveSummary: [], archivedOrdersByYear: {}, archivedByYear: {}, activeRecords: [] };
+    const yearOptions = archiveData.archiveSummary || [];
+
+    if (!state.validRecords.length) {
+      container.innerHTML = `<div class="empty-card">匯入資料後，這裡會自動依最後一筆有效 End 的年份建立歷史資料歸檔。</div>`;
+      return;
+    }
+
+    if (!yearOptions.length) {
+      container.innerHTML = `
+        <div class="detail-summary-grid">
+          <div class="detail-summary-item">
+            <strong>目前主資料</strong>
+            <span>${buildWorkOrders(archiveData.activeRecords || []).length} 張未結案製令單</span>
+            <span>${(archiveData.activeRecords || []).length} 筆資料</span>
+          </div>
+          <div class="detail-summary-item">
+            <strong>歷史歸檔年度</strong>
+            <span>目前沒有已結案資料</span>
+            <span>只要有有效 End，就會自動歸檔到對應年度。</span>
+          </div>
+        </div>
+      `;
+      return;
+    }
+
+    const selectedYear = yearOptions.some((item) => String(item.year) === cleanString(state.selectedArchiveYear))
+      ? cleanString(state.selectedArchiveYear)
+      : String(yearOptions[0].year);
+    if (selectedYear !== state.selectedArchiveYear) {
+      state.selectedArchiveYear = selectedYear;
+    }
+
+    const selectedSummary = yearOptions.find((item) => String(item.year) === selectedYear) || yearOptions[0];
+    const selectedOrders = archiveData.archivedOrdersByYear[selectedYear] || [];
+    const selectedOrderRows = selectedOrders
+      .map(
+        (order) => `
+          <tr>
+            <td class="mono primary-text">${escapeHtml(order.workOrderNo)}</td>
+            <td>${escapeHtml(order.productSpec || "")}</td>
+            <td>${displayValue(order.quantity)}</td>
+            <td>${escapeHtml((order.machineRoute || []).join(" → ") || "尚未形成流程")}</td>
+            <td class="mono">${formatDuration(order.totalProcessingMs)}</td>
+            <td class="mono">${formatDuration(order.totalWaitingMs)}</td>
+            <td class="mono">${formatDuration(order.leadTimeMs)}</td>
+            <td class="mono">${formatDateTime(order.archiveEndedAt || order.finishedAt)}</td>
+            <td><span class="chip complete">${escapeHtml(order.statusLabel || "已結案")}</span></td>
+          </tr>
+        `
+      )
+      .join("");
+
+    const optionHtml = yearOptions
+      .map(
+        (item) => `<option value="${escapeHtml(String(item.year))}" ${String(item.year) === selectedYear ? "selected" : ""}>${escapeHtml(String(item.year))}年度資料</option>`
+      )
+      .join("");
+
+    container.innerHTML = `
+      <div class="detail-summary-grid">
+        <div class="detail-summary-item">
+          <strong>目前主資料</strong>
+          <span>${buildWorkOrders(archiveData.activeRecords || []).length} 張未結案製令單</span>
+          <span>${(archiveData.activeRecords || []).length} 筆資料</span>
+        </div>
+        <div class="detail-summary-item">
+          <strong>${escapeHtml(selectedYear)}年度已結案製令單</strong>
+          <span>${selectedSummary.workOrderCount} 張</span>
+          <span>${selectedSummary.recordCount} 筆資料</span>
+        </div>
+        <div class="detail-summary-item">
+          <strong>${escapeHtml(selectedYear)}年度總加工工時</strong>
+          <span>${formatDuration(selectedSummary.totalProcessingMs)}</span>
+        </div>
+        <div class="detail-summary-item">
+          <strong>${escapeHtml(selectedYear)}年度總等待工時</strong>
+          <span>${formatDuration(selectedSummary.totalWaitingMs)}</span>
+        </div>
+        <div class="detail-summary-item">
+          <strong>${escapeHtml(selectedYear)}年度平均 Lead Time</strong>
+          <span>${formatDuration(selectedSummary.averageLeadTimeMs)}</span>
+        </div>
+      </div>
+      <div class="range-panel archive-panel">
+        <div class="range-control-grid">
+          <div class="field-box compact">
+            <label for="archiveYearSelect">年度</label>
+            <select id="archiveYearSelect" class="search-input">${optionHtml}</select>
+          </div>
+          <div class="field-box compact">
+            <label for="includeArchiveToggle">分析選項</label>
+            <div class="checkbox-row">
+              <input id="includeArchiveToggle" type="checkbox" ${scoped.includeArchiveInAnalysis ? "checked" : ""} />
+              <span>包含歷史資料一起分析</span>
+            </div>
+          </div>
+          <div class="range-action-box">
+            <button id="viewArchiveYearBtn" class="btn-secondary" type="button">查看 ${escapeHtml(selectedYear)} 年度資料</button>
+            <button id="exportArchiveYearBtn" class="btn-primary" type="button">匯出 ${escapeHtml(selectedYear)} 年度歷史資料 Excel</button>
+          </div>
+        </div>
+        <div class="foot-note">年度會依資料中的最後一筆有效 End 自動建立，不會寫死年份。若勾選包含歷史資料一起分析，主畫面 KPI、流程與標準工時會改用主資料 + 所選年度歷史資料。</div>
+      </div>
+      <div class="table-shell nested-table-shell">
+        <table>
+          <thead>
+            <tr>
+              <th>製令單號</th>
+              <th>品名規格</th>
+              <th>數量</th>
+              <th>機台流程</th>
+              <th>總加工工時</th>
+              <th>總等待工時</th>
+              <th>Lead Time</th>
+              <th>最後完成時間</th>
+              <th>狀態</th>
+            </tr>
+          </thead>
+          <tbody>${selectedOrderRows || '<tr><td colspan="9">目前沒有該年度的歷史資料。</td></tr>'}</tbody>
+        </table>
+      </div>
+    `;
   }
 
   function renderMessage() {
@@ -4254,6 +4529,88 @@ DW-810｜CNC線割機
       setMessage(`已匯出：${fileName}`, "info");
     } catch (error) {
       setMessage(error.message || "完整分析報表匯出失敗。", "error");
+    }
+  }
+
+  async function exportYearlyArchiveReport(year) {
+    const selectedYear = cleanString(year || state.selectedArchiveYear);
+    const archiveData = state.archiveData || {};
+    const archiveOrders = selectedYear && archiveData.archivedOrdersByYear ? archiveData.archivedOrdersByYear[selectedYear] || [] : [];
+    const archiveRecords = selectedYear && archiveData.archivedByYear ? archiveData.archivedByYear[selectedYear] || [] : [];
+
+    if (!selectedYear) {
+      setMessage("請先選擇要匯出的年度。", "error");
+      return;
+    }
+
+    if (!archiveOrders.length) {
+      setMessage(`目前沒有 ${selectedYear} 年度可匯出的歷史資料。`, "error");
+      return;
+    }
+
+    try {
+      const workbook = createExcelWorkbook();
+      const summaryRow = (archiveData.archiveSummary || []).find((item) => String(item.year) === selectedYear);
+      const overviewSheet = [
+        {
+          年度: `${selectedYear}年度`,
+          已結案製令單數: summaryRow ? summaryRow.workOrderCount : archiveOrders.length,
+          資料筆數: summaryRow ? summaryRow.recordCount : archiveRecords.length,
+          總加工工時: formatDuration((summaryRow && summaryRow.totalProcessingMs) || archiveOrders.reduce((sum, item) => sum + normalizeDuration(item.totalProcessingMs), 0)),
+          總等待工時: formatDuration((summaryRow && summaryRow.totalWaitingMs) || archiveOrders.reduce((sum, item) => sum + normalizeDuration(item.totalWaitingMs), 0)),
+          平均LeadTime: formatDuration((summaryRow && summaryRow.averageLeadTimeMs) || average(archiveOrders.map((item) => normalizeDuration(item.leadTimeMs)))),
+        },
+      ];
+
+      const detailSheet = archiveOrders.map((order) => ({
+        製令單號: order.workOrderNo,
+        品名規格: order.productSpec || "",
+        數量: displayValue(order.quantity),
+        機台流程: (order.machineRoute || []).join(" → "),
+        總加工工時: formatDuration(order.totalProcessingMs),
+        總等待工時: formatDuration(order.totalWaitingMs),
+        LeadTime: formatDuration(order.leadTimeMs),
+        最後完成時間: formatDateTime(order.archiveEndedAt || order.finishedAt),
+        狀態: order.statusLabel || "已結案",
+      }));
+
+      const machineYearMap = new Map();
+      archiveOrders.forEach((order) => {
+        (order.machineWorkSummary || []).forEach((machine) => {
+          const key = machine.machineKey || getMachineKey(machine.machineId, machine.machineName) || machine.stationName;
+          if (!machineYearMap.has(key)) {
+            machineYearMap.set(key, {
+              machine: machine.stationName,
+              processingMs: 0,
+              waitingMs: 0,
+              usageCount: 0,
+            });
+          }
+          const target = machineYearMap.get(key);
+          target.processingMs += normalizeDuration(machine.processingHours);
+          target.waitingMs += normalizeDuration(machine.waitingHours);
+          target.usageCount += normalizeDuration(machine.processingHours) > 0 ? 1 : 0;
+        });
+      });
+
+      const machineYearSheet = Array.from(machineYearMap.values())
+        .sort((a, b) => b.processingMs - a.processingMs || a.machine.localeCompare(b.machine, "zh-Hant"))
+        .map((item) => ({
+          機台: item.machine,
+          加工工時: formatDuration(item.processingMs),
+          等待工時: formatDuration(item.waitingMs),
+          使用次數: item.usageCount,
+        }));
+
+      appendSheet(workbook, "年度歸檔總覽", overviewSheet);
+      appendSheet(workbook, "年度製令單明細", detailSheet);
+      appendSheet(workbook, "年度機台統計", machineYearSheet);
+
+      const fileName = `MES年度歸檔_${selectedYear}.xlsx`;
+      await saveExcelWorkbook(workbook, fileName);
+      setMessage(`已匯出：${fileName}`, "info");
+    } catch (error) {
+      setMessage(error.message || "年度歷史資料匯出失敗。", "error");
     }
   }
 
