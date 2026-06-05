@@ -370,8 +370,8 @@ DW-810｜CNC線割機
         <section class="panel section-block" id="machine-utilization">
           <div class="section-title">
             <div>
-              <h3>機台使用率分析</h3>
-              <p>依本期間各機台實際加工工時占比，整理機台使用率總表、排行榜、分類分析、高負載機台與低使用率機台。機台主檔會依匯入資料自動新增，不會因本次未出現而刪除。</p>
+              <h3>加工工時占比分析</h3>
+              <p>依本期間各機台實際加工工時占比，整理加工量集中程度、閒置狀態與未使用設備。機台主檔會依匯入資料自動新增，不會因本次未出現而刪除。</p>
             </div>
           </div>
           <div id="machineUsageSection"></div>
@@ -3655,7 +3655,46 @@ DW-810｜CNC線割機
       )
       .join("");
 
+    const utilizationFormulaPanel = `
+      <details class="formula-card" open>
+        <summary>計算公式說明</summary>
+        <div class="formula-card-body">
+          <div class="formula-grid">
+            <div class="formula-item">
+              <strong>機台利用率(含假日)</strong>
+              <p class="formula-expression">機台加工工時 ÷ 機台可用工時(含假日) × 100%</p>
+              <p>分子：該機台在本期間的總加工工時。</p>
+              <p>分母：查詢區間天數 × 每日可用工時設定值，假日也列入。</p>
+              <p>用途：分析機台在完整期間內的忙碌程度。</p>
+            </div>
+            <div class="formula-item">
+              <strong>機台利用率(不含假日)</strong>
+              <p class="formula-expression">機台加工工時 ÷ 機台可用工時(不含假日) × 100%</p>
+              <p>分子：該機台在本期間的總加工工時。</p>
+              <p>分母：工作日可用工時；假日預設不列入，但假日若有加工紀錄會保留該日。</p>
+              <p>用途：分析正常工作日下的機台負荷程度。</p>
+            </div>
+            <div class="formula-item">
+              <strong>可用工時說明</strong>
+              <p class="formula-expression">查詢區間天數 × 每日可用工時設定值</p>
+              <p>目前每日可用工時設定：${displayValue(state.utilizationConfig.dailyHours)} 小時。</p>
+              <p>範例：30 天 × 8 小時 = 240 小時；31 天 × 8 小時 = 248 小時。</p>
+              <p>目前不是 24 小時制，也不是固定工作日寫死演算法。</p>
+            </div>
+            <div class="formula-item">
+              <strong>超過 100% 的目前處理</strong>
+              <p class="formula-expression">calculateRatio() 會把大於 100% 的結果封頂顯示為 100%</p>
+              <p>因此 150%、180%、200% 目前都會顯示為 100%。</p>
+              <p>若後續要改為顯示真實值，可再另外調整畫面與分級邏輯。</p>
+            </div>
+          </div>
+          <div class="foot-note">此區顯示的是機台忙碌程度與負荷參考，不是 OEE，也不是設備稼動率。</div>
+        </div>
+      </details>
+    `;
+
     container.innerHTML = `
+      ${utilizationFormulaPanel}
       <div class="analytics-grid">
         ${renderBarCard("各機台等待時間排行", analytics.machineWaitingRank.slice(0, 10), "duration")}
         ${renderBarCard("站間等待 TOP10", analytics.stationWaitingRank.map((item) => ({
@@ -3715,12 +3754,75 @@ DW-810｜CNC線割機
     }
 
     if (!state.validRecords.length) {
-      container.innerHTML = `<div class="empty-card">匯入資料後，這裡會自動建立動態機台主檔並分析各機台的加工工時排行。</div>`;
+      container.innerHTML = `<div class="empty-card">匯入資料後，這裡會自動建立動態機台主檔並分析各機台的加工工時占比、閒置狀態與未使用設備。</div>`;
       return;
     }
 
     const analysis = view.filteredMachineUsageAnalysis;
     const ranking = analysis.ranking || {};
+    const machineUsageFormulaPanel = `
+      <details class="formula-card" open>
+        <summary>計算公式說明</summary>
+        <div class="formula-card-body">
+          <div class="formula-grid">
+            <div class="formula-item">
+              <strong>加工工時占比</strong>
+              <p class="formula-expression">機台加工工時 ÷ 全廠加工工時 × 100%</p>
+              <p>分子：該機台在本期間的總加工工時。</p>
+              <p>分母：本期間所有機台總加工工時。</p>
+              <p>用途：分析加工量集中在哪些機台，判斷哪些機台承擔最多加工量。</p>
+            </div>
+            <div class="formula-item">
+              <strong>完全沒使用機台</strong>
+              <p class="formula-expression">總加工工時 = 0 且查詢區間內無加工紀錄</p>
+              <p>用途：分析設備閒置狀況。</p>
+            </div>
+            <div class="formula-item">
+              <strong>閒置天數</strong>
+              <p class="formula-expression">今天日期 - 最近加工日期</p>
+              <p>用途：看哪些設備長期閒置。</p>
+            </div>
+          </div>
+          <div class="table-shell nested-table-shell formula-table-shell">
+            <table>
+              <thead>
+                <tr>
+                  <th>指標名稱</th>
+                  <th>公式</th>
+                  <th>分子</th>
+                  <th>分母</th>
+                  <th>管理用途</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>加工工時占比</td>
+                  <td class="mono">機台加工工時 ÷ 全廠加工工時</td>
+                  <td>機台加工工時</td>
+                  <td>全廠加工工時</td>
+                  <td>看誰承擔最多加工量</td>
+                </tr>
+                <tr>
+                  <td>機台利用率</td>
+                  <td class="mono">機台加工工時 ÷ 機台可用工時</td>
+                  <td>機台加工工時</td>
+                  <td>機台可用工時</td>
+                  <td>看誰最忙碌</td>
+                </tr>
+                <tr>
+                  <td>閒置天數</td>
+                  <td class="mono">今天 - 最近加工日</td>
+                  <td>今日日期</td>
+                  <td>最近加工日</td>
+                  <td>看誰長期閒置</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="foot-note">本區定位為加工工時占比分析與閒置設備分析，不稱為 OEE、設備稼動率或真實設備利用率。</div>
+        </div>
+      </details>
+    `;
     const categoryCards = (analysis.categoryRows || [])
       .map(
         (item) => `
@@ -3729,7 +3831,7 @@ DW-810｜CNC線割機
             <span>機台 ${item.machineCount} 台｜本期間有資料 ${item.activeMachineCount} 台</span>
             <span>總加工 ${formatDuration(item.totalProcessingMs)}</span>
             <span>總等待 ${formatDuration(item.totalWaitingMs)}</span>
-            <span>使用率 ${formatPercentage(item.usageRate)}</span>
+            <span>工時占比 ${formatPercentage(item.usageRate)}</span>
           </div>
         `
       )
@@ -3815,6 +3917,7 @@ DW-810｜CNC線割機
       .join("");
 
     container.innerHTML = `
+      ${machineUsageFormulaPanel}
       <div class="detail-summary-grid">
         <div class="detail-summary-item">
           <strong>動態機台主檔</strong>
@@ -3822,12 +3925,12 @@ DW-810｜CNC線割機
           <span>本期間有資料 ${analysis.activeCount} 台</span>
         </div>
         <div class="detail-summary-item">
-          <strong>使用率最高機台</strong>
+          <strong>工時占比最高機台</strong>
           <span>${escapeHtml(ranking.highestUsage ? ranking.highestUsage.label : "目前沒有資料")}</span>
           <span>${formatPercentage(ranking.highestUsage ? ranking.highestUsage.usageRate : 0)}</span>
         </div>
         <div class="detail-summary-item">
-          <strong>使用率最低機台</strong>
+          <strong>工時占比最低機台</strong>
           <span>${escapeHtml(ranking.lowestUsage ? ranking.lowestUsage.label : "目前沒有資料")}</span>
           <span>${formatPercentage(ranking.lowestUsage ? ranking.lowestUsage.usageRate : 0)}</span>
         </div>
@@ -3849,12 +3952,12 @@ DW-810｜CNC線割機
         <div class="detail-summary-item">
           <strong>本期間總加工工時</strong>
           <span>${formatDuration(analysis.totalProcessingMs || 0)}</span>
-          <span>機台使用率以本期間加工工時占比計算</span>
+          <span>加工工時占比以本期間加工工時占比計算</span>
         </div>
       </div>
       <div class="analytics-grid">
         ${renderBarCard(
-          "機台使用率排行",
+          "加工工時占比排行",
           (analysis.usageRankRows || []).map((item) => ({ label: item.label, value: item.usageRate })),
           "percent"
         )}
@@ -3878,7 +3981,7 @@ DW-810｜CNC線割機
                   <th>機台代號</th>
                   <th>機台名稱</th>
                   <th>總加工工時</th>
-                  <th>機台使用率</th>
+                  <th>加工工時占比</th>
                   <th>完成工單數</th>
                 </tr>
               </thead>
@@ -3895,7 +3998,7 @@ DW-810｜CNC線割機
                   <th>機台代號</th>
                   <th>機台名稱</th>
                   <th>總加工工時</th>
-                  <th>機台使用率</th>
+                  <th>加工工時占比</th>
                   <th>完成工單數</th>
                 </tr>
               </thead>
@@ -3912,7 +4015,7 @@ DW-810｜CNC線割機
                   <th>機台代號</th>
                   <th>機台名稱</th>
                   <th>機台分類</th>
-                  <th>機台使用率</th>
+                  <th>加工工時占比</th>
                   <th>狀態</th>
                   <th>最近未加工時間</th>
                 </tr>
@@ -3940,7 +4043,7 @@ DW-810｜CNC線割機
           </div>
         </div>
         <div class="detail-panel-card detail-panel-wide">
-          <div class="detail-panel-title">機台使用率總表</div>
+          <div class="detail-panel-title">加工工時占比總表</div>
           <div class="foot-note">此處會保留固定機台主檔中的所有設備。即使本期間完全沒有加工資料，也會顯示 0% 並標記未使用。</div>
           <div class="table-shell nested-table-shell">
             <table>
@@ -3951,7 +4054,7 @@ DW-810｜CNC線割機
                   <th>機台分類</th>
                   <th>總加工工時</th>
                   <th>總等待工時</th>
-                  <th>機台使用率</th>
+                  <th>加工工時占比</th>
                   <th>完成工單數</th>
                   <th>平均加工工時</th>
                   <th>平均等待工時</th>

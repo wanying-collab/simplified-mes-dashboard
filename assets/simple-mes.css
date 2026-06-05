@@ -944,6 +944,83 @@ textarea {
   font-weight: 700;
 }
 
+.formula-card {
+  margin-bottom: 16px;
+  border-radius: 22px;
+  border: 1px solid rgba(139, 92, 246, 0.14);
+  background: rgba(255, 255, 255, 0.8);
+  overflow: hidden;
+}
+
+.formula-card summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 16px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 800;
+  color: #312e81;
+  background: rgba(245, 243, 255, 0.9);
+}
+
+.formula-card summary::-webkit-details-marker {
+  display: none;
+}
+
+.formula-card summary::after {
+  content: "展開";
+  font-size: 12px;
+  font-weight: 700;
+  color: #7c3aed;
+}
+
+.formula-card[open] summary::after {
+  content: "收合";
+}
+
+.formula-card-body {
+  padding: 16px 18px 18px;
+  display: grid;
+  gap: 16px;
+}
+
+.formula-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.formula-item {
+  border-radius: 18px;
+  border: 1px solid rgba(139, 92, 246, 0.12);
+  background: rgba(255, 255, 255, 0.84);
+  padding: 14px 16px;
+}
+
+.formula-item strong {
+  display: block;
+  margin-bottom: 8px;
+  color: #1e1b4b;
+}
+
+.formula-item p {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--muted);
+}
+
+.formula-expression {
+  font-weight: 800;
+  color: #5b21b6 !important;
+}
+
+.formula-table-shell table th,
+.formula-table-shell table td {
+  vertical-align: middle;
+}
+
 .detail-action-row {
   margin-top: 14px;
 }
