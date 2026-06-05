@@ -2567,6 +2567,7 @@ DW-810｜CNC線割機
         totalProcessingMs: 0,
         totalWaitingMs: 0,
         completedOrderCount: 0,
+        completedStationCount: 0,
         averageProcessingMs: 0,
         averageWaitingMs: 0,
         segmentCount: 0,
@@ -2600,6 +2601,7 @@ DW-810｜CNC線割機
             totalProcessingMs: 0,
             totalWaitingMs: 0,
             completedOrderCount: 0,
+            completedStationCount: 0,
             averageProcessingMs: 0,
             averageWaitingMs: 0,
             segmentCount: 0,
@@ -2629,6 +2631,10 @@ DW-810｜CNC線割機
         if (order.completed && !order.hasAnomaly && !countedCompleted.has(masterKey)) {
           target.completedOrderCount += 1;
           countedCompleted.add(masterKey);
+        }
+
+        if (isCompletedMachineStage(order, machine)) {
+          target.completedStationCount += 1;
         }
       });
 
@@ -2729,6 +2735,28 @@ DW-810｜CNC線割機
       unusedRows: unusedRows.slice(0, 20),
       longestIdleRows: longestIdleRows.slice(0, 20),
     };
+  }
+
+  function isCompletedMachineStage(order, machine) {
+    if (!machine || !normalizeDuration(machine.processingHours)) {
+      return false;
+    }
+
+    if (machine.endStatus === "End") {
+      return true;
+    }
+
+    if ((machine.transitions || []).length > 0) {
+      return true;
+    }
+
+    const machineRoute = Array.isArray(order && order.machineRoute) ? order.machineRoute : [];
+    const lastMachine = machineRoute.length ? machineRoute[machineRoute.length - 1] : "";
+    if (order && order.completed && lastMachine && lastMachine === machine.stationName) {
+      return true;
+    }
+
+    return false;
   }
 
   function materializeRange(range, records) {
@@ -3819,6 +3847,7 @@ DW-810｜CNC線割機
               </tbody>
             </table>
           </div>
+          <div class="foot-note">完成製令單數：整張工單最後有有效 End。完成站數：該機台本站加工已完成，即使整張工單尚未全部完成也會計入。</div>
           <div class="foot-note">本區定位為加工工時占比分析與閒置設備分析，不稱為 OEE、設備稼動率或真實設備利用率。</div>
         </div>
       </details>
@@ -3846,6 +3875,7 @@ DW-810｜CNC線割機
             <td class="mono">${formatDuration(item.totalProcessingMs)}</td>
             <td class="mono">${formatPercentage(item.usageRate)}</td>
             <td>${item.completedOrderCount} 張</td>
+            <td>${item.completedStationCount} 站</td>
           </tr>
         `
       )
@@ -3860,6 +3890,7 @@ DW-810｜CNC線割機
             <td class="mono">${formatDuration(item.totalProcessingMs)}</td>
             <td class="mono">${formatPercentage(item.usageRate)}</td>
             <td>${item.completedOrderCount} 張</td>
+            <td>${item.completedStationCount} 站</td>
           </tr>
         `
       )
@@ -3906,6 +3937,7 @@ DW-810｜CNC線割機
             <td class="mono">${formatDuration(item.totalWaitingMs)}</td>
             <td class="mono">${formatPercentage(item.usageRate)}</td>
             <td>${item.completedOrderCount} 張</td>
+            <td>${item.completedStationCount} 站</td>
             <td class="mono">${formatDuration(item.averageProcessingMs)}</td>
             <td class="mono">${formatDuration(item.averageWaitingMs)}</td>
             <td>${item.segmentCount} 段</td>
@@ -3982,10 +4014,11 @@ DW-810｜CNC線割機
                   <th>機台名稱</th>
                   <th>總加工工時</th>
                   <th>加工工時占比</th>
-                  <th>完成工單數</th>
+                  <th>完成製令單數</th>
+                  <th>完成站數</th>
                 </tr>
               </thead>
-              <tbody>${highLoadRows || '<tr><td colspan="5">目前沒有高負載機台資料。</td></tr>'}</tbody>
+              <tbody>${highLoadRows || '<tr><td colspan="6">目前沒有高負載機台資料。</td></tr>'}</tbody>
             </table>
           </div>
         </div>
@@ -3999,10 +4032,11 @@ DW-810｜CNC線割機
                   <th>機台名稱</th>
                   <th>總加工工時</th>
                   <th>加工工時占比</th>
-                  <th>完成工單數</th>
+                  <th>完成製令單數</th>
+                  <th>完成站數</th>
                 </tr>
               </thead>
-              <tbody>${lowUsageRows || '<tr><td colspan="5">目前沒有低使用率機台資料。</td></tr>'}</tbody>
+              <tbody>${lowUsageRows || '<tr><td colspan="6">目前沒有低使用率機台資料。</td></tr>'}</tbody>
             </table>
           </div>
         </div>
@@ -4055,7 +4089,8 @@ DW-810｜CNC線割機
                   <th>總加工工時</th>
                   <th>總等待工時</th>
                   <th>加工工時占比</th>
-                  <th>完成工單數</th>
+                  <th>完成製令單數</th>
+                  <th>完成站數</th>
                   <th>平均加工工時</th>
                   <th>平均等待工時</th>
                   <th>加工段數</th>
@@ -4063,7 +4098,7 @@ DW-810｜CNC線割機
                   <th>狀態</th>
                 </tr>
               </thead>
-              <tbody>${totalRows || '<tr><td colspan="12">目前沒有機台使用率資料。</td></tr>'}</tbody>
+              <tbody>${totalRows || '<tr><td colspan="13">目前沒有機台使用率資料。</td></tr>'}</tbody>
             </table>
           </div>
         </div>
@@ -4784,7 +4819,10 @@ DW-810｜CNC線割機
       平均LeadTime: formatDuration(item.averageLeadTimeMs),
     }));
 
-    const machineUtilSheet = scoped.machineMetrics.map((item) => ({
+    const machineUsageMap = new Map((scoped.machineUsageAnalysis && scoped.machineUsageAnalysis.tableRows ? scoped.machineUsageAnalysis.tableRows : []).map((item) => [item.masterKey || resolveMachineMasterKey(item.machineId, item.machineName), item]));
+    const machineUtilSheet = scoped.machineMetrics.map((item) => {
+      const usageSummary = machineUsageMap.get(resolveMachineMasterKey(item.machineId, item.machineName)) || {};
+      return {
       機台: item.label,
       機台加工工時: formatDuration(item.processingMs),
       機台等待工時: formatDuration(item.waitingMs),
@@ -4793,7 +4831,10 @@ DW-810｜CNC線割機
       機台可用工時_不含假日: formatDuration(item.availableHoursWithoutHolidayMs),
       機台利用率_含假日: formatPercentage(item.utilizationWithHoliday),
       機台利用率_不含假日: formatPercentage(item.utilizationWithoutHoliday),
-    }));
+      完成製令單數: `${usageSummary.completedOrderCount || 0} 張`,
+      完成站數: `${usageSummary.completedStationCount || 0} 站`,
+    };
+    });
 
     const waitingSheet = scoped.workOrders.flatMap((order) =>
       (order.stationTransitions || []).map((item) => ({
