@@ -1243,7 +1243,7 @@ DW-810｜CNC線割機
     const totalProcessingMs = segmentProcessingMs;
     const totalWaitingMs = calculateTotalTransitionWaiting(stationTransitions);
     const leadTimeMs = calculateLeadTime(totalProcessingMs, totalWaitingMs);
-    const totalTimeWithAllowance = calculateWidenedDuration(leadTimeMs);
+    const totalTimeWithAllowance = calculateWidenedDuration(totalProcessingMs);
     const machineRoute = machineWorkSummary.map((item) => item.stationName).filter(Boolean);
 
     if (completed && startedAt instanceof Date && finishedAt instanceof Date && finishedAt.getTime() < startedAt.getTime()) {
@@ -1839,7 +1839,7 @@ DW-810｜CNC線割機
           });
 
           const flowLeadTimeMs = normalizeDuration(order.totalProcessingMs) + normalizeDuration(order.totalWaitingMs);
-          const flowAllowanceMs = normalizeDuration(Math.round(flowLeadTimeMs * 1.3));
+          const flowAllowanceMs = calculateWidenedDuration(order.totalProcessingMs);
 
           return {
             ...order,
@@ -2026,11 +2026,7 @@ DW-810｜CNC線割機
           averageTotalWaitingMs: eligibleOrders.length ? average(eligibleOrders.map((order) => order.totalWaitingMs)) : 0,
           averageLeadTimeMs: eligibleOrders.length ? average(eligibleOrders.map((order) => normalizeDuration(order.totalProcessingMs) + normalizeDuration(order.totalWaitingMs))) : 0,
           averageAllowanceMs: eligibleOrders.length
-            ? average(
-                eligibleOrders.map((order) =>
-                  normalizeDuration(Math.round((normalizeDuration(order.totalProcessingMs) + normalizeDuration(order.totalWaitingMs)) * 1.3))
-                )
-              )
+            ? average(eligibleOrders.map((order) => calculateWidenedDuration(order.totalProcessingMs)))
             : 0,
           searchText,
         };
@@ -4741,7 +4737,7 @@ DW-810｜CNC線割機
       等待工時: formatDuration(record.waitingHours),
       本次工時: formatDuration(record.currentWorkHours),
       總累計工時: formatDuration(record.totalWorkHours),
-      總時間含寬放1_3: formatDuration(record.totalTimeWithAllowance),
+      總時間含寬放1_3: formatDuration(calculateWidenedDuration(record.totalWorkHours)),
     }));
 
     return {
@@ -4858,7 +4854,7 @@ DW-810｜CNC線割機
         等待工時: formatDuration(record.waitingHours),
         本次工時: formatDuration(record.currentWorkHours),
         總累計工時: formatDuration(record.totalWorkHours),
-        總時間含寬放1_3: formatDuration(record.totalTimeWithAllowance),
+        總時間含寬放1_3: formatDuration(calculateWidenedDuration(record.totalWorkHours)),
       }));
 
       appendSheet(workbook, "製令單彙總", summarySheet);
@@ -5511,8 +5507,8 @@ DW-810｜CNC線割機
     return 0;
   }
 
-  function calculateWidenedDuration(totalProcessingMs) {
-    const seconds = Math.round(normalizeDuration(totalProcessingMs) / 1000);
+  function calculateWidenedDuration(processingMs) {
+    const seconds = Math.round(normalizeDuration(processingMs) / 1000);
     return Math.round(seconds * 1.3) * 1000;
   }
 
