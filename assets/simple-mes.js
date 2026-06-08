@@ -14,6 +14,16 @@
   const KEEP_HOLIDAY_STATUSES = new Set(["Start", "Resume", "End"]);
   const NATIONAL_HOLIDAYS = new Set([]);
   const MACHINE_MASTER_STORAGE_KEY = "mes_machine_master_v1";
+  const MISSED_PAUSE_THRESHOLD_MS = 12 * 60 * 60 * 1000;
+  const MISSED_PAUSE_INCLUDED_MACHINE_IDS = new Set([
+    "L1", "L2", "L3", "L4", "L5", "L6", "L7", "L8", "L9", "L10", "L11",
+    "M1", "M2", "M5", "YC-1",
+    "D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8", "D9", "D10", "D11", "D12", "D13", "D14", "D15", "D16",
+    "R2-1", "HM1", "SM1", "P1", "HTRM1",
+  ]);
+  const MISSED_PAUSE_EXCLUDED_MACHINE_IDS = new Set([
+    "YC-2", "ACME", "YH-28L", "VYURN-26", "AWEA BM 1600", "CHM4020NC", "CHM 4020 NC",
+  ]);
   const FIXED_MACHINE_MASTER_SOURCE = `
 YC-2｜CNC立式車床
 ACME｜CNC立式車床
@@ -81,6 +91,7 @@ DW-810｜CNC線割機
     searchTerm: "",
     productFlowSearchTerm: "",
     selectedOperator: "",
+    missedPauseFocusWorkOrderNo: "",
     machineMaster: loadMachineMaster(),
     statusFilter: "all",
     dateFilter: {
@@ -365,6 +376,16 @@ DW-810｜CNC線割機
             </div>
           </div>
           <div id="waitingAnalytics"></div>
+        </section>
+
+        <section class="panel section-block" id="missed-pause-analysis">
+          <div class="section-title">
+            <div>
+              <h3>疑似漏按暫停分析表</h3>
+              <p>只針對人工操作設備檢查 Start / Resume 到 Pause 是否超過 12 小時。此區僅做警示，不修改任何原始工時與 Lead Time 計算。</p>
+            </div>
+          </div>
+          <div id="missedPauseAnalysisSection"></div>
         </section>
 
         <section class="panel section-block" id="machine-utilization">
@@ -665,6 +686,17 @@ DW-810｜CNC線割機
         const detailAnchor = document.getElementById("operatorDetailAnchor");
         if (detailAnchor) {
           detailAnchor.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+        return;
+      }
+
+      const jumpTarget = target.closest("[data-jump-target]");
+      if (jumpTarget) {
+        event.preventDefault();
+        const targetId = jumpTarget.getAttribute("data-jump-target");
+        const targetSection = targetId ? document.getElementById(targetId) : null;
+        if (targetSection) {
+          targetSection.scrollIntoView({ behavior: "smooth", block: "start" });
         }
         return;
       }
@@ -1075,6 +1107,106 @@ DW-810｜CNC線割機
     };
   }
 
+  function isEligibleAverageOrder(order) {
+    return !!(order && order.completed && !order.hasAnomaly && !order.hasMissedPauseWarning);
+  }
+
+  function isManualPauseCheckMachine(machineId, machineName) {
+    const safeId = cleanString(machineId);
+    const safeName = cleanString(machineName);
+    if (safeName && /CNC/i.test(safeName)) {
+      return false;
+    }
+    if (safeId && MISSED_PAUSE_EXCLUDED_MACHINE_IDS.has(safeId)) {
+      return false;
+    }
+    return !!(safeId && MISSED_PAUSE_INCLUDED_MACHINE_IDS.has(safeId));
+  }
+
+  function resolveMissedPauseWarning(station) {
+    if (!station || station.endStatus !== "Pause") {
+      return null;
+    }
+    const processingMs = normalizeDuration(station.processingMs);
+    if (processingMs <= MISSED_PAUSE_THRESHOLD_MS) {
+      return null;
+    }
+    if (!isManualPauseCheckMachine(station.machineId, station.machineName)) {
+      return null;
+    }
+
+    return {
+      machineId: station.machineId || "",
+      machineName: station.machineName || "",
+      machineLabel: composeMachineLabel(station.machineId, station.machineName) || "未填機台",
+      operator: cleanString(station.operator) || "未填操作員",
+      startStatus: station.startStatus || "",
+      endStatus: station.endStatus || "",
+      startAt: station.startAt,
+      endAt: station.endAt,
+      processingMs,
+      exceededMs: Math.max(processingMs - MISSED_PAUSE_THRESHOLD_MS, 0),
+      reason: `${station.startStatus || "Start"} → ${station.endStatus || "Pause"} 超過 12 小時`,
+    };
+  }
+
+  function buildMissedPauseAnalysis(workOrders) {
+    const warningRows = [];
+    const operatorMap = new Map();
+
+    (workOrders || []).forEach((order) => {
+      (order.missedPauseWarnings || []).forEach((warning, index) => {
+        const row = {
+          workOrderNo: order.workOrderNo,
+          productSpec: order.productSpec || "",
+          quantity: order.quantity,
+          machineId: warning.machineId || "",
+          machineLabel: warning.machineLabel || composeMachineLabel(warning.machineId, warning.machineName) || "未填機台",
+          operator: warning.operator || "未填操作員",
+          startAt: warning.startAt,
+          endAt: warning.endAt,
+          processingMs: normalizeDuration(warning.processingMs),
+          exceededMs: normalizeDuration(warning.exceededMs),
+          reason: warning.reason || "疑似漏按暫停",
+          warningNo: index + 1,
+          statusLabel: order.statusLabel,
+        };
+        warningRows.push(row);
+
+        const operatorKey = cleanString(row.operator) || "未填操作員";
+        if (!operatorMap.has(operatorKey)) {
+          operatorMap.set(operatorKey, {
+            operator: operatorKey,
+            warningCount: 0,
+            workOrderSet: new Set(),
+            totalProcessingMs: 0,
+            maxProcessingMs: 0,
+          });
+        }
+        const target = operatorMap.get(operatorKey);
+        target.warningCount += 1;
+        target.workOrderSet.add(order.workOrderNo);
+        target.totalProcessingMs += row.processingMs;
+        target.maxProcessingMs = Math.max(target.maxProcessingMs, row.processingMs);
+      });
+    });
+
+    const operatorRanking = Array.from(operatorMap.values())
+      .map((item) => ({
+        operator: item.operator,
+        warningCount: item.warningCount,
+        workOrderCount: item.workOrderSet.size,
+        totalProcessingMs: item.totalProcessingMs,
+        maxProcessingMs: item.maxProcessingMs,
+      }))
+      .sort((a, b) => b.warningCount - a.warningCount || b.totalProcessingMs - a.totalProcessingMs || a.operator.localeCompare(b.operator, "zh-Hant"));
+
+    return {
+      warningRows: warningRows.sort((a, b) => b.processingMs - a.processingMs || a.workOrderNo.localeCompare(b.workOrderNo)),
+      operatorRanking,
+    };
+  }
+
   function buildWorkOrders(records) {
     const grouped = new Map();
     records.forEach((record) => {
@@ -1157,6 +1289,7 @@ DW-810｜CNC線割機
         currentStation.endStatus = "Pause";
         currentStation.endAt = record.recordedAt;
         currentStation.processingMs = resolveProcessingDuration(currentStation.startAt, record.recordedAt, record.currentWorkHours);
+        currentStation.missedPauseWarning = resolveMissedPauseWarning(currentStation);
         if (record.recordedAt instanceof Date && currentStation.startAt instanceof Date && record.recordedAt.getTime() < currentStation.startAt.getTime()) {
           anomalies.push("Pause 時間早於 Start / Resume");
         }
@@ -1239,6 +1372,13 @@ DW-810｜CNC線割機
     const stationTransitions = buildStationTransitions(stations);
     stations.forEach((station) => applyStationUtilization(station, records));
     const machineWorkSummary = buildMachineWorkSummary(stations, stationTransitions);
+    const missedPauseWarnings = stations
+      .filter((station) => station.missedPauseWarning)
+      .map((station) => ({
+        ...station.missedPauseWarning,
+        machineKey: station.machineKey || getMachineKey(station.machineId, station.machineName),
+        stationNo: station.stationNo,
+      }));
     const segmentProcessingMs = stations.reduce((sum, station) => sum + (station.processingMs || 0), 0);
     const totalProcessingMs = segmentProcessingMs;
     const totalWaitingMs = calculateTotalTransitionWaiting(stationTransitions);
@@ -1259,6 +1399,10 @@ DW-810｜CNC線割機
 
     if (duplicateEndRecords.length) {
       notes.push("同一製令單出現多個 End，已採用第一次 End，後續 End 不納入計算");
+    }
+
+    if (missedPauseWarnings.length) {
+      notes.push(`⚠ 疑似漏按暫停 ${missedPauseWarnings.length} 筆`);
     }
 
     const utilization = calculateMachineUtilization({
@@ -1291,6 +1435,7 @@ DW-810｜CNC線割機
         endAt: station.endAt,
         transitions: station.transitions,
         segments: station.segments,
+        missedPauseWarning: station.missedPauseWarning || null,
       };
     });
     const averageWaitingMs = stationTransitions.length ? Math.round(totalWaitingMs / stationTransitions.length) : 0;
@@ -1325,6 +1470,9 @@ DW-810｜CNC線割機
       duplicateEndCount: duplicateEndRecords.length,
       notes,
       proxyEndInfo,
+      missedPauseWarnings,
+      hasMissedPauseWarning: missedPauseWarnings.length > 0,
+      includeInAverage: isEligibleAverageOrder({ completed, hasAnomaly: anomalies.length > 0, hasMissedPauseWarning: missedPauseWarnings.length > 0 }),
       statusLabel: resolveWorkOrderStatus(stations, lastStatusSeen, completed),
       anomalies,
       hasAnomaly: anomalies.length > 0,
@@ -1370,6 +1518,7 @@ DW-810｜CNC線割機
       machineAvailableWithoutHolidayMs: 0,
       machineUtilizationWithHoliday: null,
       machineUtilizationWithoutHoliday: null,
+      missedPauseWarning: null,
       isOpen: false,
     };
   }
@@ -1441,6 +1590,8 @@ DW-810｜CNC線割機
           flowUtilization: null,
           machineUtilizationWithHoliday: null,
           machineUtilizationWithoutHoliday: null,
+          missedPauseWarningCount: 0,
+          missedPauseWarnings: [],
           pauseCount: 0,
           resumeCount: 0,
           startStatus: station.startStatus,
@@ -1454,6 +1605,10 @@ DW-810｜CNC線割機
 
       const summary = machineMap.get(machineKey);
       summary.processingHours += normalizeDuration(station.processingMs);
+      summary.missedPauseWarningCount += station.missedPauseWarning ? 1 : 0;
+      if (station.missedPauseWarning) {
+        summary.missedPauseWarnings.push(station.missedPauseWarning);
+      }
       summary.pauseCount += station.endStatus === "Pause" ? 1 : 0;
       summary.resumeCount += station.startStatus === "Resume" ? 1 : 0;
       summary.startAt = earlierDate(summary.startAt, station.startAt);
@@ -1485,6 +1640,8 @@ DW-810｜CNC線割機
     return Array.from(machineMap.values()).map((summary) => {
       summary.totalHours = summary.processingHours + summary.waitingHours;
       summary.flowUtilization = calculateRatio(summary.processingHours, summary.totalHours);
+      summary.hasMissedPauseWarning = summary.missedPauseWarningCount > 0;
+      summary.missedPauseWarning = summary.missedPauseWarnings[0] || null;
       return summary;
     });
   }
@@ -1528,7 +1685,7 @@ DW-810｜CNC線割機
     const groups = new Map();
 
     workOrders
-      .filter((order) => order.completed && !order.hasAnomaly && order.normalizedProductSpec)
+      .filter((order) => isEligibleAverageOrder(order) && order.normalizedProductSpec)
       .forEach((order) => {
         if (!groups.has(order.normalizedProductSpec)) {
           groups.set(order.normalizedProductSpec, []);
@@ -1562,9 +1719,12 @@ DW-810｜CNC線割機
     const machineStandardMap = new Map();
 
     workOrders
-      .filter((order) => order.completed && !order.hasAnomaly)
+      .filter((order) => isEligibleAverageOrder(order))
       .forEach((order) => {
         (order.machineWorkSummary || []).forEach((machine) => {
+          if (machine.hasMissedPauseWarning) {
+            return;
+          }
           if (order.normalizedProductSpec && machine.machineKey) {
             const partMachineKey = `${order.normalizedProductSpec}::${machine.machineKey}`;
             if (!partMachineStandardMap.has(partMachineKey)) {
@@ -1646,7 +1806,7 @@ DW-810｜CNC線割機
           const bTime = b.startedAt ? b.startedAt.getTime() : Number.MAX_SAFE_INTEGER;
           return aTime - bTime || a.workOrderNo.localeCompare(b.workOrderNo);
         });
-        const eligibleOrders = sortedOrders.filter((order) => order.completed && !order.hasAnomaly);
+        const eligibleOrders = sortedOrders.filter((order) => isEligibleAverageOrder(order));
 
         return {
           normalizedProductSpec,
@@ -1687,7 +1847,7 @@ DW-810｜CNC線割機
           const bTime = b.startedAt ? b.startedAt.getTime() : Number.MAX_SAFE_INTEGER;
           return aTime - bTime || a.workOrderNo.localeCompare(b.workOrderNo);
         });
-        const eligibleOrders = sortedOrders.filter((order) => order.completed && !order.hasAnomaly);
+        const eligibleOrders = sortedOrders.filter((order) => isEligibleAverageOrder(order));
         const machineMetaMap = new Map();
         const machinePositionMap = new Map();
         const routeTemplates = new Map();
@@ -1728,7 +1888,7 @@ DW-810｜CNC線割機
             }
             const target = routeTemplates.get(templateKey);
             target.count += 1;
-            target.weight += order.completed && !order.hasAnomaly ? 10 : 1;
+            target.weight += isEligibleAverageOrder(order) ? 10 : 1;
           }
 
           (order.stationTransitions || []).forEach((transition, index) => {
@@ -1955,7 +2115,7 @@ DW-810｜CNC線割機
 
         const routeGroups = Array.from(routeGroupMap.values())
           .map((routeGroup) => {
-            const routeEligibleOrders = routeGroup.orders.filter((order) => order.completed && !order.hasAnomaly);
+            const routeEligibleOrders = routeGroup.orders.filter((order) => isEligibleAverageOrder(order));
             const routeMachineAverages = routeGroup.machineColumns
               .map((machine) => {
                 const values = routeEligibleOrders
@@ -2343,6 +2503,7 @@ DW-810｜CNC線割機
             operator,
             totalProcessingMs: 0,
             segmentCount: 0,
+            warningCount: 0,
             workOrders: new Set(),
             machines: new Set(),
             productSpecs: new Set(),
@@ -2374,7 +2535,12 @@ DW-810｜CNC線割機
           endAt: station.endAt,
           processingMs: normalizeDuration(station.processingMs),
           statusLabel: order.statusLabel,
+          missedPauseWarning: station.missedPauseWarning || null,
         });
+
+        if (station.missedPauseWarning) {
+          target.warningCount += 1;
+        }
       });
     });
 
@@ -2389,6 +2555,7 @@ DW-810｜CNC線割機
         machineCount: item.machines.size,
         machineList: Array.from(item.machines).sort(),
         productSpecs: Array.from(item.productSpecs).sort(),
+        warningCount: item.warningCount || 0,
         latestRecordAt: item.latestRecordAt,
         records: item.records.sort((a, b) => {
           const aTime = a.endAt instanceof Date ? a.endAt.getTime() : a.startAt instanceof Date ? a.startAt.getTime() : 0;
@@ -2435,6 +2602,7 @@ DW-810｜CNC線割機
             operator,
             totalProcessingMs: 0,
             segmentCount: 0,
+            warningCount: 0,
             machineSet: new Set(),
             workOrderSet: new Set(),
           });
@@ -2443,6 +2611,7 @@ DW-810｜CNC線割機
         const operatorTarget = target.operatorMap.get(operator);
         operatorTarget.totalProcessingMs += normalizeDuration(station.processingMs);
         operatorTarget.segmentCount += 1;
+        operatorTarget.warningCount += station.missedPauseWarning ? 1 : 0;
         operatorTarget.workOrderSet.add(order.workOrderNo);
         operatorTarget.machineSet.add(composeMachineLabel(station.machineId, station.machineName) || "未填機台");
       });
@@ -2461,6 +2630,7 @@ DW-810｜CNC線割機
             segmentCount: item.segmentCount,
             averageProcessingMs: item.segmentCount ? Math.round(item.totalProcessingMs / item.segmentCount) : 0,
             workOrderCount: item.workOrderSet.size,
+            warningCount: item.warningCount || 0,
             machineList: Array.from(item.machineSet).sort(),
           }))
           .sort((a, b) => b.totalProcessingMs - a.totalProcessingMs || a.operator.localeCompare(b.operator, "zh-Hant")),
@@ -2510,6 +2680,10 @@ DW-810｜CNC線割機
       if (order.hasAnomaly) {
         target.hasAnomaly = true;
         target.notes.add("流程異常，不納入計算");
+      }
+      if (station.missedPauseWarning) {
+        target.validWorkTime = false;
+        target.notes.add("⚠ 疑似漏按暫停，不納入平均");
       }
     });
 
@@ -2624,7 +2798,7 @@ DW-810｜CNC線割機
         if (!processingGroups.has(masterKey)) {
           processingGroups.set(masterKey, []);
         }
-        if (processingMs > 0 && order.completed && !order.hasAnomaly) {
+        if (processingMs > 0 && isEligibleAverageOrder(order) && !machine.hasMissedPauseWarning) {
           processingGroups.get(masterKey).push(processingMs);
         }
 
@@ -2735,6 +2909,87 @@ DW-810｜CNC線割機
       unusedRows: unusedRows.slice(0, 20),
       longestIdleRows: longestIdleRows.slice(0, 20),
     };
+  }
+
+  function buildMachineKeyDiagnostics(workOrders, machineMetrics, machineUsageAnalysis, targetMachineIds) {
+    const ids = (targetMachineIds || []).map((item) => cleanString(item)).filter(Boolean);
+    if (!ids.length) {
+      return [];
+    }
+
+    const masterTotalMap = new Map();
+    (machineUsageAnalysis && machineUsageAnalysis.tableRows || []).forEach((item) => {
+      const machineId = cleanString(item.machineId);
+      if (!machineId || !ids.includes(machineId)) {
+        return;
+      }
+      masterTotalMap.set(machineId, normalizeDuration(item.totalProcessingMs));
+    });
+
+    const rawKeyMap = new Map();
+    (workOrders || []).forEach((order) => {
+      (order.machineWorkSummary || []).forEach((machine) => {
+        const machineId = resolveMachineMasterKey(machine.machineId, machine.machineName);
+        if (!machineId || !ids.includes(machineId)) {
+          return;
+        }
+        const machineKey = cleanString(machine.machineKey) || getMachineKey(machine.machineId, machine.machineName) || machineId;
+        const rawKey = `${machineId}::${machineKey}`;
+        if (!rawKeyMap.has(rawKey)) {
+          rawKeyMap.set(rawKey, {
+            machineId,
+            machineKey,
+            label: machine.stationName || composeMachineLabel(machine.machineId, machine.machineName) || machineKey,
+            processingMs: 0,
+            segmentCount: 0,
+            workOrderSet: new Set(),
+          });
+        }
+        const target = rawKeyMap.get(rawKey);
+        target.processingMs += normalizeDuration(machine.processingHours);
+        target.segmentCount += (machine.segments || []).length || 0;
+        if (order.workOrderNo) {
+          target.workOrderSet.add(order.workOrderNo);
+        }
+      });
+    });
+
+    const metricKeyMap = new Map();
+    (machineMetrics || []).forEach((item) => {
+      const machineId = resolveMachineMasterKey(item.machineId, item.machineName);
+      if (!machineId || !ids.includes(machineId)) {
+        return;
+      }
+      const machineKey = cleanString(item.machineKey) || getMachineKey(item.machineId, item.machineName) || machineId;
+      metricKeyMap.set(`${machineId}::${machineKey}`, item);
+    });
+
+    return ids.map((machineId) => {
+      const keyRows = Array.from(rawKeyMap.values())
+        .filter((item) => item.machineId === machineId)
+        .map((item) => {
+          const metric = metricKeyMap.get(`${machineId}::${item.machineKey}`);
+          return {
+            machineKey: item.machineKey,
+            label: metric && metric.label ? metric.label : item.label,
+            processingMs: metric ? normalizeDuration(metric.processingMs) : normalizeDuration(item.processingMs),
+            workOrderCount: metric && Number.isFinite(metric.orderCount) ? metric.orderCount : item.workOrderSet.size,
+            segmentCount: item.segmentCount,
+          };
+        })
+        .sort((a, b) => b.processingMs - a.processingMs || a.machineKey.localeCompare(b.machineKey, "zh-Hant"));
+
+      const metricTotalProcessingMs = keyRows.reduce((sum, item) => sum + normalizeDuration(item.processingMs), 0);
+      const usageTotalProcessingMs = normalizeDuration(masterTotalMap.get(machineId) || 0);
+
+      return {
+        machineId,
+        usageTotalProcessingMs,
+        metricTotalProcessingMs,
+        matchesUsageTotal: usageTotalProcessingMs === metricTotalProcessingMs,
+        keyRows,
+      };
+    });
   }
 
   function isCompletedMachineStage(order, machine) {
@@ -2850,10 +3105,10 @@ DW-810｜CNC線割機
     const groups = new Map();
 
     (workOrders || [])
-      .filter((order) => order.completed && !order.hasAnomaly)
+      .filter((order) => isEligibleAverageOrder(order))
       .forEach((order) => {
         (order.machineWorkSummary || []).forEach((item) => {
-          if (!item.machineKey || !normalizeDuration(item.processingHours)) {
+          if (!item.machineKey || !normalizeDuration(item.processingHours) || item.hasMissedPauseWarning) {
             return;
           }
           if (!groups.has(item.machineKey)) {
@@ -3077,6 +3332,7 @@ DW-810｜CNC線割機
     renderStandardTable(view);
     renderScheduleTable(view);
     renderWaitingAnalytics(view);
+    renderMissedPauseAnalysisSection(view);
     renderMachineUsageSection(view);
     renderComparisonSection(view);
     renderProductFlowAnalysisSection(view);
@@ -3097,6 +3353,7 @@ DW-810｜CNC線割機
     const filteredProductFlowAnalysis = buildProductSpecFlowAnalysis(filteredAnalysisWorkOrders, state.productFlowSearchTerm);
     const filteredWaitingAnalytics = buildWaitingAnalytics(filteredWorkOrders, filteredMachineMetrics);
     const filteredMachineUsageAnalysis = buildMachineUsageAnalysis(filteredWorkOrders);
+    const filteredMissedPauseAnalysis = buildMissedPauseAnalysis(filteredAnalysisWorkOrders);
     const filteredOperatorSummaries = calculateOperatorSummary(filteredWorkOrders);
     const filteredProductOperatorGroups = calculateProductOperatorAnalysis(filteredWorkOrders);
     const utilizationSummary = buildUtilizationSummary(filteredWorkOrders, filteredMachineMetrics, scoped.effectiveRange);
@@ -3120,6 +3377,7 @@ DW-810｜CNC線割機
       filteredProductFlowAnalysis,
       filteredWaitingAnalytics,
       filteredMachineUsageAnalysis,
+      filteredMissedPauseAnalysis,
       filteredOperatorSummaries,
       filteredProductOperatorGroups,
       selectedOperatorSummary,
@@ -3157,6 +3415,7 @@ DW-810｜CNC線割機
     const totalProcessingMs = view.filteredWorkOrders.reduce((sum, item) => sum + item.totalProcessingMs, 0);
     const totalWaitingMs = view.filteredWorkOrders.reduce((sum, item) => sum + item.totalWaitingMs, 0);
     const utilization = view.utilizationSummary;
+    const missedPauseCount = (view.filteredMissedPauseAnalysis && view.filteredMissedPauseAnalysis.warningRows ? view.filteredMissedPauseAnalysis.warningRows.length : 0);
 
     summaryGrid.innerHTML = [
       buildSummaryCard("資料來源", escapeHtml(state.sourceLabel || "尚未載入資料"), state.sourceLabel ? "目前顯示的是已載入資料。" : "請上傳 Excel / CSV 或貼上 TSV。"),
@@ -3166,6 +3425,7 @@ DW-810｜CNC線割機
       buildSummaryCard("已完成數", String(completedCount || 0), `未完成 ${incompleteCount} 張｜異常 ${anomalyCount} 張`),
       buildSummaryCard("總加工工時", formatDuration(totalProcessingMs), "目前篩選區間內的總加工工時"),
       buildSummaryCard("總等待時間", formatDuration(totalWaitingMs), "只統計跨機台的站間等待"),
+      buildSummaryCard("疑似漏按暫停", String(missedPauseCount || 0), "點擊可查看明細與人員排行", "missed-pause-analysis"),
       buildSummaryCard("平均機台利用率", formatPercentage(utilization.averageUtilization), `共統計 ${utilization.machineSampleCount} 台機台`),
       buildSummaryCard("本期間機台利用率", formatPercentage(utilization.currentRangeUtilization), `區間：${utilization.rangeLabel}`),
       buildSummaryCard("含假日利用率", formatPercentage(utilization.withHolidayUtilization), "可用工時包含假日"),
@@ -3342,6 +3602,7 @@ DW-810｜CNC線割機
                     <strong>${escapeHtml(machine.stationName)}</strong>
                     <div>總加工工時：${formatDuration(machine.processingHours)}</div>
                     <div>內含加工段數：${machine.segments.length} 段</div>
+                    ${machine.hasMissedPauseWarning ? '<div class="foot-note">⚠ 疑似漏按暫停</div>' : ""}
                   </div>
                 `
               )
@@ -3381,6 +3642,7 @@ DW-810｜CNC線割機
                       <span>機台利用率：${formatPercentage(resolveDisplayUtilization(station))}</span>
                       <span>Pause ${station.pauseCount} 次</span>
                       <span>Resume ${station.resumeCount} 次</span>
+                      ${station.missedPauseWarning ? '<span>⚠ 疑似漏按暫停</span>' : ""}
                     </div>
                     <details class="inline-details">
                       <summary>展開原始加工段</summary>
@@ -3395,6 +3657,7 @@ DW-810｜CNC線割機
                             `
                           )
                           .join("") || '<div class="stack-line">目前沒有可顯示的加工段。</div>'}
+                        ${station.missedPauseWarning ? `<div class="foot-note">⚠ ${escapeHtml(station.missedPauseWarning.reason)}｜超出 ${formatDuration(station.missedPauseWarning.exceededMs)}</div>` : ""}
                       </div>
                     </details>
                   </div>
@@ -3431,6 +3694,7 @@ DW-810｜CNC線割機
         const anomalyText = order.anomalies.length ? `<div class="foot-note">異常提示：${escapeHtml(order.anomalies.join("；"))}</div>` : "";
         const flowHint = order.flowHint ? `<div class="foot-note">流程提示：${escapeHtml(order.flowHint)}</div>` : "";
         const utilizationNote = order.utilizationNote ? `<div class="foot-note">利用率說明：${escapeHtml(order.utilizationNote)}</div>` : "";
+        const missedPauseText = order.hasMissedPauseWarning ? `<div class="foot-note">⚠ 疑似漏按暫停：${order.missedPauseWarnings.map((item) => `${item.machineLabel}｜${item.reason}`).join("；")}</div>` : "";
         const exportButton = `<button class="btn-secondary btn-inline" type="button" data-export-work-order="${escapeHtml(order.workOrderNo)}">匯出目前工單</button>`;
 
         return `
@@ -3457,8 +3721,10 @@ DW-810｜CNC線割機
             <td class="mono">${formatDuration(order.totalTimeWithAllowance)}</td>
             <td>
               <div class="chip ${statusClass}">${escapeHtml(order.statusLabel)}</div>
+              ${order.hasMissedPauseWarning ? '<div class="chip pending">⚠ 疑似漏按暫停</div>' : ""}
               ${flowHint}
               ${notes}
+              ${missedPauseText}
               ${utilizationNote}
               ${anomalyText}
               <details class="inline-details">
@@ -3775,6 +4041,117 @@ DW-810｜CNC線割機
     `;
   }
 
+  function renderMissedPauseAnalysisSection(view) {
+    const container = document.getElementById("missedPauseAnalysisSection");
+    if (!container) {
+      return;
+    }
+
+    if (!state.validRecords.length) {
+      container.innerHTML = `<div class="empty-card">匯入資料後，這裡會列出疑似漏按暫停的加工段，供主管追蹤與教育訓練使用。</div>`;
+      return;
+    }
+
+    const analysis = view.filteredMissedPauseAnalysis || { warningRows: [], operatorRanking: [] };
+    const detailRows = (analysis.warningRows || [])
+      .map(
+        (item) => `
+          <tr>
+            <td class="mono primary-text">${escapeHtml(item.workOrderNo)}</td>
+            <td>${escapeHtml(item.productSpec || "")}</td>
+            <td>${escapeHtml(item.machineLabel)}</td>
+            <td>${escapeHtml(item.operator)}</td>
+            <td class="mono">${formatDateTime(item.startAt)}</td>
+            <td class="mono">${formatDateTime(item.endAt)}</td>
+            <td class="mono">${formatDuration(item.processingMs)}</td>
+            <td class="mono">${formatDuration(item.exceededMs)}</td>
+            <td>⚠ ${escapeHtml(item.reason)}</td>
+          </tr>
+        `
+      )
+      .join("");
+
+    const rankingRows = (analysis.operatorRanking || [])
+      .map(
+        (item) => `
+          <tr>
+            <td><button class="link-button" type="button" data-operator-link="${escapeHtml(item.operator)}">${escapeHtml(item.operator)}</button></td>
+            <td>${item.warningCount} 次</td>
+            <td>${item.workOrderCount} 張</td>
+            <td class="mono">${formatDuration(item.totalProcessingMs)}</td>
+            <td class="mono">${formatDuration(item.maxProcessingMs)}</td>
+          </tr>
+        `
+      )
+      .join("");
+
+    const formulaPanel = `
+      <details class="formula-card" open>
+        <summary>計算公式說明</summary>
+        <div class="formula-card-body">
+          <div class="formula-grid">
+            <div class="formula-item">
+              <strong>疑似漏按暫停判定</strong>
+              <p class="formula-expression">Start → Pause 或 Resume → Pause 超過 12 小時</p>
+              <p>僅針對人工操作設備檢查，設備名稱包含 CNC 時自動排除。</p>
+              <p>此功能只做警示，不修改原始工時、Lead Time、等待工時與利用率。</p>
+            </div>
+            <div class="formula-item">
+              <strong>不納入平均</strong>
+              <p class="formula-expression">疑似漏按暫停資料不納入平均工時與排程歷史平均</p>
+              <p>包含：品名規格 Lead Time 表、平均加工工時、機台平均加工時間、排程預估的歷史平均。</p>
+              <p>原始資料仍完整保留，可用於教育訓練與追蹤。</p>
+            </div>
+          </div>
+        </div>
+      </details>
+    `;
+
+    container.innerHTML = `
+      ${formulaPanel}
+      <div class="detail-panel-grid analytics-detail-grid">
+        <div class="detail-panel-card">
+          <div class="detail-panel-title">疑似漏按暫停排行</div>
+          <div class="table-shell nested-table-shell">
+            <table>
+              <thead>
+                <tr>
+                  <th>人員</th>
+                  <th>發生次數</th>
+                  <th>涉及工單數</th>
+                  <th>累計本次工時</th>
+                  <th>最長單段工時</th>
+                </tr>
+              </thead>
+              <tbody>${rankingRows || '<tr><td colspan="5">目前沒有疑似漏按暫停排行。</td></tr>'}</tbody>
+            </table>
+          </div>
+        </div>
+        <div class="detail-panel-card detail-panel-wide">
+          <div class="detail-panel-title">疑似漏按暫停明細</div>
+          <div class="table-shell nested-table-shell">
+            <table>
+              <thead>
+                <tr>
+                  <th>工單號</th>
+                  <th>品名規格</th>
+                  <th>機台</th>
+                  <th>操作人員</th>
+                  <th>開始時間</th>
+                  <th>結束時間</th>
+                  <th>本次工時</th>
+                  <th>超出 12 小時時數</th>
+                  <th>異常原因</th>
+                </tr>
+              </thead>
+              <tbody>${detailRows || '<tr><td colspan="9">目前沒有疑似漏按暫停資料。</td></tr>'}</tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
   function renderMachineUsageSection(view) {
     const container = document.getElementById("machineUsageSection");
     if (!container) {
@@ -3924,6 +4301,65 @@ DW-810｜CNC線割機
           </tr>
         `
       )
+      .join("");
+
+    const machineKeyDiagnostics = buildMachineKeyDiagnostics(
+      view.filteredWorkOrders,
+      view.filteredMachineMetrics,
+      analysis,
+      ["D2", "D3"]
+    );
+
+    const diagnosticCards = machineKeyDiagnostics
+      .map((machine) => {
+        const detailRows = (machine.keyRows || [])
+          .map(
+            (item) => `
+              <tr>
+                <td class="mono">${escapeHtml(item.machineKey)}</td>
+                <td>${escapeHtml(item.label || "未填機台")}</td>
+                <td class="mono">${formatDuration(item.processingMs)}</td>
+                <td>${item.workOrderCount} 張</td>
+                <td>${item.segmentCount} 段</td>
+              </tr>
+            `
+          )
+          .join("");
+
+        return `
+          <div class="detail-panel-card">
+            <div class="detail-panel-title">${escapeHtml(machine.machineId)} machineKey Debug</div>
+            <div class="detail-summary-grid">
+              <div class="detail-summary-item">
+                <strong>工時占比分析合計</strong>
+                <span>${formatDuration(machine.usageTotalProcessingMs)}</span>
+              </div>
+              <div class="detail-summary-item">
+                <strong>各機台利用率 keys 合計</strong>
+                <span>${formatDuration(machine.metricTotalProcessingMs)}</span>
+              </div>
+              <div class="detail-summary-item">
+                <strong>是否一致</strong>
+                <span>${machine.matchesUsageTotal ? "一致" : "不一致"}</span>
+              </div>
+            </div>
+            <div class="table-shell nested-table-shell">
+              <table>
+                <thead>
+                  <tr>
+                    <th>machineKey</th>
+                    <th>顯示名稱</th>
+                    <th>加工工時</th>
+                    <th>工單數</th>
+                    <th>加工段數</th>
+                  </tr>
+                </thead>
+                <tbody>${detailRows || '<tr><td colspan="5">目前沒有符合條件的資料。</td></tr>'}</tbody>
+              </table>
+            </div>
+          </div>
+        `;
+      })
       .join("");
 
     const totalRows = (analysis.tableRows || [])
@@ -4102,6 +4538,11 @@ DW-810｜CNC線割機
             </table>
           </div>
         </div>
+        <div class="detail-panel-card detail-panel-wide">
+          <div class="detail-panel-title">D2 / D3 機台鍵值 Debug</div>
+          <div class="foot-note">這個區塊只用來比對目前各機台利用率的 machineKey 拆分情況，確認 D2 / D3 是否因機台名稱差異被拆成多筆。</div>
+          <div class="detail-panel-grid analytics-detail-grid">${diagnosticCards || '<div class="empty-card compact-empty">目前沒有 D2 / D3 的 debug 資料。</div>'}</div>
+        </div>
       </div>
     `;
   }
@@ -4201,7 +4642,7 @@ DW-810｜CNC線割機
                           <td class="mono">${formatDuration(order.leadTimeMs)}</td>
                           <td class="mono">${formatDuration(order.totalTimeWithAllowance)}</td>
                           <td>${order.completed ? '<span class="chip complete">已完成</span>' : '<span class="chip pending">未完成</span>'}</td>
-                          <td>${order.completed && !order.hasAnomaly ? '<span class="chip complete">是</span>' : '<span class="chip manual">否</span>'}</td>
+                          <td>${order.includeInAverage ? '<span class="chip complete">是</span>' : '<span class="chip manual">否</span>'}</td>
                         </tr>
                       `;
                       }
@@ -4403,6 +4844,7 @@ DW-810｜CNC線割機
                     <th>各人平均工時</th>
                     <th>使用機台</th>
                     <th>製令單數</th>
+                    <th>提醒</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -4416,6 +4858,7 @@ DW-810｜CNC線割機
                           <td class="mono">${formatDuration(item.averageProcessingMs)}</td>
                           <td>${escapeHtml(item.machineList.join("、"))}</td>
                           <td>${item.workOrderCount} 張</td>
+                          <td>${item.warningCount ? '<span class="chip pending">⚠ 疑似漏按暫停</span>' : '<span class="chip complete">正常</span>'}</td>
                         </tr>
                       `
                     )
@@ -4447,19 +4890,20 @@ DW-810｜CNC線割機
       <div class="table-shell nested-table-shell">
         <table>
           <thead>
-            <tr>
-              <th>人員名稱</th>
-              <th>所有製令單</th>
-              <th>加工總工時</th>
-              <th>平均工時</th>
-              <th>加工次數</th>
-              <th>使用機台</th>
-              <th>加工過的品名規格</th>
-              <th>最近加工紀錄</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${view.filteredOperatorSummaries
+                <tr>
+                  <th>人員名稱</th>
+                  <th>所有製令單</th>
+                  <th>加工總工時</th>
+                  <th>平均工時</th>
+                  <th>加工次數</th>
+                  <th>使用機台</th>
+                  <th>加工過的品名規格</th>
+                  <th>最近加工紀錄</th>
+                  <th>提醒</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${view.filteredOperatorSummaries
               .map(
                 (item) => `
                   <tr>
@@ -4471,6 +4915,7 @@ DW-810｜CNC線割機
                     <td>${escapeHtml(item.machineList.join("、"))}</td>
                     <td>${escapeHtml(item.productSpecs.slice(0, 3).join("、"))}${item.productSpecs.length > 3 ? ` 等 ${item.productSpecs.length} 項` : ""}</td>
                     <td class="mono">${formatDateTime(item.latestRecordAt)}</td>
+                    <td>${item.warningCount ? `<span class="chip pending">⚠ ${item.warningCount} 次</span>` : '<span class="chip complete">正常</span>'}</td>
                   </tr>
                 `
               )
@@ -4505,7 +4950,7 @@ DW-810｜CNC線割機
             <td class="mono">${formatDateTime(record.startAt)}</td>
             <td class="mono">${formatDateTime(record.endAt)}</td>
             <td class="mono">${formatDuration(record.processingMs)}</td>
-            <td>${escapeHtml(record.statusLabel)}</td>
+            <td>${escapeHtml(record.statusLabel)}${record.missedPauseWarning ? "｜⚠ 疑似漏按暫停" : ""}</td>
           </tr>
         `
       )
@@ -4522,6 +4967,7 @@ DW-810｜CNC線割機
             <div class="detail-summary-item"><strong>使用機台</strong><span>${detail.machineCount} 台</span></div>
             <div class="detail-summary-item"><strong>加工過的品名規格</strong><span>${detail.productSpecs.length} 項</span></div>
             <div class="detail-summary-item"><strong>最近加工紀錄</strong><span>${formatDateTime(detail.latestRecordAt)}</span></div>
+            <div class="detail-summary-item"><strong>疑似漏按暫停</strong><span>${detail.warningCount || 0} 次</span></div>
           </div>
           <div class="foot-note">使用機台：${escapeHtml(detail.machineList.join("、"))}</div>
           <div class="foot-note">加工過的品名規格：${escapeHtml(detail.productSpecs.join("、"))}</div>
@@ -4558,7 +5004,7 @@ DW-810｜CNC線割機
     const groups = new Map();
 
     (workOrders || [])
-      .filter((order) => order.completed && !order.hasAnomaly && normalizeDuration(order.totalProcessingMs) > 0)
+      .filter((order) => isEligibleAverageOrder(order) && normalizeDuration(order.totalProcessingMs) > 0)
       .forEach((order) => {
         const key = groupByPartNo(order);
         if (!key) {
@@ -4634,6 +5080,7 @@ DW-810｜CNC線割機
       appendSheet(workbook, "品名規格流程統計", sheets.productFlowSummarySheet);
       appendSheet(workbook, "站間等待分析", sheets.waitingSheet);
       appendSheet(workbook, "機台利用率", sheets.machineUtilSheet);
+      appendSheet(workbook, "疑似漏按暫停", sheets.missedPauseSheet);
       appendSheet(workbook, "異常資料", sheets.anomalySheet);
       appendSheet(workbook, "原始資料", sheets.rawSheet);
 
@@ -4665,6 +5112,7 @@ DW-810｜CNC線割機
       appendSheet(workbook, "品名規格流程統計", sheets.productFlowSummarySheet);
       appendSheet(workbook, "站間等待分析", sheets.waitingSheet);
       appendSheet(workbook, "機台利用率", sheets.machineUtilSheet);
+      appendSheet(workbook, "疑似漏按暫停", sheets.missedPauseSheet);
       appendSheet(workbook, "異常資料", sheets.anomalySheet);
       appendSheet(workbook, "原始資料", sheets.rawSheet);
 
@@ -4761,6 +5209,7 @@ DW-810｜CNC線割機
   function buildAnalysisSheets(scoped) {
     const productFlowGroups = buildProductSpecFlowAnalysis(scoped.analysisWorkOrders || scoped.workOrders, "");
     const productFlowSheets = buildProductFlowExportSheets(productFlowGroups);
+    const missedPauseAnalysis = buildMissedPauseAnalysis(scoped.analysisWorkOrders || scoped.workOrders);
     const workOrderSheet = scoped.workOrders.map((order) => ({
       製令單號: order.workOrderNo,
       品名規格: order.productSpec || "",
@@ -4782,6 +5231,7 @@ DW-810｜CNC線割機
       利用率_不含假日: formatPercentage(order.utilizationWithoutHoliday),
       是否完成: order.completed ? "是" : "否",
       是否異常: order.hasAnomaly ? "是" : "否",
+      疑似漏按暫停: order.hasMissedPauseWarning ? "是" : "否",
     }));
 
     const machineDetailSheet = scoped.workOrders.flatMap((order) =>
@@ -4797,6 +5247,7 @@ DW-810｜CNC線割機
         機台利用率_不含假日: formatPercentage(station.machineUtilizationWithoutHoliday),
         Pause次數: station.pauseCount,
         Resume次數: station.resumeCount,
+        疑似漏按暫停: station.missedPauseWarning ? "是" : "否",
         原始加工段: (station.segments || [])
           .map((segment) => `${segment.segmentNo}. ${formatDateTime(segment.startAt)} → ${formatDateTime(segment.endAt)}｜${formatDuration(segment.processingMs)}`)
           .join("；"),
@@ -4859,6 +5310,12 @@ DW-810｜CNC線割機
           品名規格: order.productSpec || "",
           異常原因: order.anomalies.join("；"),
         })),
+      ...missedPauseAnalysis.warningRows.map((item) => ({
+        類型: "疑似漏按暫停",
+        製令單號: item.workOrderNo,
+        品名規格: item.productSpec || "",
+        異常原因: `${item.machineLabel}｜${item.reason}｜本次工時 ${formatDuration(item.processingMs)}`,
+      })),
       ...state.invalidRecords.map((record) => ({
         類型: "無效資料",
         製令單號: record.workOrderNo || "",
@@ -4866,6 +5323,19 @@ DW-810｜CNC線割機
         異常原因: record.invalidReason || "必要欄位缺漏",
       })),
     ];
+
+    const missedPauseSheet = missedPauseAnalysis.warningRows.map((item) => ({
+      工單號: item.workOrderNo,
+      品名規格: item.productSpec || "",
+      機台: item.machineLabel,
+      操作人員: item.operator,
+      開始時間: formatDateTime(item.startAt),
+      結束時間: formatDateTime(item.endAt),
+      本次工時: formatDuration(item.processingMs),
+      超出12小時時數: formatDuration(item.exceededMs),
+      異常原因: item.reason,
+      目前狀態: item.statusLabel,
+    }));
 
     const rawSheet = scoped.filteredRecords.map((record) => ({
       使用者: record.operator,
@@ -4891,6 +5361,7 @@ DW-810｜CNC線割機
       productFlowDetailSheet: productFlowSheets.detailRows,
       productFlowSummarySheet: productFlowSheets.summaryRows,
       machineUtilSheet,
+      missedPauseSheet,
       waitingSheet,
       anomalySheet,
       rawSheet,
@@ -4954,6 +5425,7 @@ DW-810｜CNC線割機
           總時間含寬放1_3: formatDuration(order.totalTimeWithAllowance),
           利用率_含假日: formatPercentage(order.utilizationWithHoliday),
           利用率_不含假日: formatPercentage(order.utilizationWithoutHoliday),
+          疑似漏按暫停: order.hasMissedPauseWarning ? "是" : "否",
           是否完成: order.completed ? "是" : "否",
           是否異常: order.hasAnomaly ? "是" : "否",
           備註: order.notes.join("；"),
@@ -4970,6 +5442,7 @@ DW-810｜CNC線割機
         機台利用率_不含假日: formatPercentage(station.machineUtilizationWithoutHoliday),
         Pause次數: station.pauseCount,
         Resume次數: station.resumeCount,
+        疑似漏按暫停: station.missedPauseWarning ? "是" : "否",
         原始加工段: (station.segments || [])
           .map((segment) => `${segment.segmentNo}. ${formatDateTime(segment.startAt)} → ${formatDateTime(segment.endAt)}｜${formatDuration(segment.processingMs)}`)
           .join("；"),
@@ -4982,6 +5455,16 @@ DW-810｜CNC線割機
         等待結束時間: formatDateTime(item.toStartTime),
         站間等待時間: formatDuration(item.waitingMs),
         是否跨假日: isCrossHoliday(item.fromEndTime, item.toStartTime) ? "是" : "否",
+      }));
+
+      const missedPauseSheet = (order.missedPauseWarnings || []).map((item) => ({
+        機台: item.machineLabel,
+        操作人員: item.operator,
+        開始時間: formatDateTime(item.startAt),
+        結束時間: formatDateTime(item.endAt),
+        本次工時: formatDuration(item.processingMs),
+        超出12小時時數: formatDuration(item.exceededMs),
+        異常原因: item.reason,
       }));
 
       const rawSheet = order.rawRecords.map((record) => ({
@@ -5004,6 +5487,7 @@ DW-810｜CNC線割機
       appendSheet(workbook, "製令單彙總", summarySheet);
       appendSheet(workbook, "各機台工時明細", machineDetailSheet);
       appendSheet(workbook, "站間等待分析", waitingSheet);
+      appendSheet(workbook, "疑似漏按暫停", missedPauseSheet);
       appendSheet(workbook, "原始資料", rawSheet);
 
       const fileName = `MES工單分析_${order.workOrderNo}.xlsx`;
@@ -5786,9 +6270,9 @@ DW-810｜CNC線割機
     `;
   }
 
-  function buildSummaryCard(label, value, detail) {
+  function buildSummaryCard(label, value, detail, jumpTarget) {
     return `
-      <div class="summary-card">
+      <div class="summary-card${jumpTarget ? " summary-card-link" : ""}" ${jumpTarget ? `data-jump-target="${escapeHtml(jumpTarget)}"` : ""}>
         <div class="summary-label">${label}</div>
         <div class="summary-value">${value}</div>
         <div class="summary-detail">${detail}</div>

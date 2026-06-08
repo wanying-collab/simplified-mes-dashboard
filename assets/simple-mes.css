@@ -501,6 +501,17 @@ textarea {
   padding: 18px;
 }
 
+.summary-card-link {
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+
+.summary-card-link:hover {
+  transform: translateY(-2px);
+  border-color: rgba(139, 92, 246, 0.24);
+  box-shadow: 0 18px 38px rgba(91, 58, 142, 0.12);
+}
+
 .summary-label {
   color: var(--soft);
   font-size: 12px;
