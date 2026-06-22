@@ -2156,7 +2156,7 @@ DW-810｜CNC線割機
               machineAverages: routeMachineAverages,
               waitingAverages: routeWaitingAverages,
               averageTotalProcessingMs: routeEligibleOrders.length ? average(routeEligibleOrders.map((order) => order.totalProcessingMs)) : 0,
-              averageUnitProcessingMs: calculateWeightedUnitProcessingMs(routeEligibleOrders),
+              averageUnitProcessingMs: calculateWeightedUnitProcessingMs(routeGroup.orders),
               averageTotalWaitingMs: routeEligibleOrders.length ? average(routeEligibleOrders.map((order) => order.totalWaitingMs)) : 0,
               averageLeadTimeMs: routeEligibleOrders.length ? average(routeEligibleOrders.map((order) => order.flowLeadTimeMs)) : 0,
               averageAllowanceMs: routeEligibleOrders.length ? average(routeEligibleOrders.map((order) => order.flowAllowanceMs)) : 0,
@@ -2189,7 +2189,7 @@ DW-810｜CNC線割機
           machineAverages,
           transitionAverages,
           averageTotalProcessingMs: eligibleOrders.length ? average(eligibleOrders.map((order) => order.totalProcessingMs)) : 0,
-          averageUnitProcessingMs: calculateWeightedUnitProcessingMs(eligibleOrders),
+          averageUnitProcessingMs: calculateWeightedUnitProcessingMs(sortedOrders),
           averageTotalWaitingMs: eligibleOrders.length ? average(eligibleOrders.map((order) => order.totalWaitingMs)) : 0,
           averageLeadTimeMs: eligibleOrders.length ? average(eligibleOrders.map((order) => normalizeDuration(order.totalProcessingMs) + normalizeDuration(order.totalWaitingMs))) : 0,
           averageAllowanceMs: eligibleOrders.length
