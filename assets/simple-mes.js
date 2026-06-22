@@ -1848,6 +1848,7 @@ DW-810｜CNC線割機
           return aTime - bTime || a.workOrderNo.localeCompare(b.workOrderNo);
         });
         const eligibleOrders = sortedOrders.filter((order) => isEligibleAverageOrder(order));
+        const quantitySummary = summarizeOrderQuantities(sortedOrders);
         const machineMetaMap = new Map();
         const machinePositionMap = new Map();
         const routeTemplates = new Map();
@@ -2175,6 +2176,8 @@ DW-810｜CNC線割機
           productSpec: sortedOrders[0] && sortedOrders[0].productSpec ? sortedOrders[0].productSpec : normalizedProductSpec,
           orderCount: sortedOrders.length,
           analysisSampleCount: eligibleOrders.length,
+          totalQuantity: quantitySummary.hasQuantity ? quantitySummary.totalQuantity : null,
+          totalQuantityText: formatProductFlowQuantity(quantitySummary.hasQuantity ? quantitySummary.totalQuantity : null),
           machineColumns,
           transitionColumns,
           displayColumns,
@@ -2321,7 +2324,9 @@ DW-810｜CNC線割機
       detailRows.push([`品名規格：${group.productSpec}`]);
       detailRowRoles.push("title");
       detailRows.push([
+        `製令單筆數：${group.orderCount} 筆`,
         `分析樣本數：${group.analysisSampleCount} 筆`,
+        `累計生產數量：${group.totalQuantityText}`,
         `平均總工時：${formatDuration(group.averageTotalProcessingMs)}`,
         `平均等待時間：${formatDuration(group.averageTotalWaitingMs)}`,
         `平均LeadTime：${formatDuration(group.averageLeadTimeMs)}`,
@@ -2331,7 +2336,9 @@ DW-810｜CNC線割機
       summaryRows.push([`品名規格：${group.productSpec}`]);
       summaryRowRoles.push("title");
       summaryRows.push([
+        `製令單筆數：${group.orderCount} 筆`,
         `分析樣本數：${group.analysisSampleCount} 筆`,
+        `累計生產數量：${group.totalQuantityText}`,
         `平均總工時：${formatDuration(group.averageTotalProcessingMs)}`,
         `平均等待時間：${formatDuration(group.averageTotalWaitingMs)}`,
         `平均LeadTime：${formatDuration(group.averageLeadTimeMs)}`,
@@ -4566,7 +4573,7 @@ DW-810｜CNC線割機
             <summary>
               <div>
                 <strong>${escapeHtml(group.productSpec)}</strong>
-                <div class="foot-note">製令單數量 ${group.orderCount}｜已完成 ${group.completedCount}｜有效樣本 ${group.includeCount}</div>
+                <div class="foot-note">製令單筆數 ${group.orderCount}｜已完成 ${group.completedCount}｜有效樣本 ${group.includeCount}</div>
               </div>
               <div class="comparison-summary-grid">
                 <span>平均加工 ${formatDuration(group.avgProcessingMs)}</span>
@@ -4742,7 +4749,7 @@ DW-810｜CNC線割機
             return `
               <div class="product-flow-route-card">
                 <div class="product-flow-route-title">${escapeHtml(routeGroup.routeLabel)}</div>
-                <div class="foot-note">流程樣本 ${routeGroup.orderCount} 張｜有效樣本 ${routeGroup.analysisSampleCount} 張</div>
+                <div class="foot-note">流程製令單筆數 ${routeGroup.orderCount} 筆｜分析樣本數 ${routeGroup.analysisSampleCount} 筆</div>
                 <div class="table-shell nested-table-shell product-flow-table-shell">
                   <table>
                     <thead>
@@ -4768,7 +4775,7 @@ DW-810｜CNC線割機
             <summary>
               <div>
                 <strong>${escapeHtml(group.productSpec)}</strong>
-                <div class="foot-note">製令單數量 ${group.orderCount}｜分析樣本數 ${group.analysisSampleCount}</div>
+                <div class="foot-note">製令單筆數：${group.orderCount} 筆 ｜ 分析樣本數：${group.analysisSampleCount} 筆 ｜ 累計生產數量：${escapeHtml(group.totalQuantityText)}</div>
               </div>
               <div class="comparison-summary-grid">
                 <span>平均總工時 ${formatDuration(group.averageTotalProcessingMs)}</span>
@@ -4778,11 +4785,6 @@ DW-810｜CNC線割機
               </div>
             </summary>
             <div class="detail-summary-grid product-flow-group-summary">
-              <div class="detail-summary-item">
-                <strong>分析樣本數</strong>
-                <span>${group.analysisSampleCount} 筆</span>
-                <span>歷史製令單 ${group.orderCount} 張</span>
-              </div>
               <div class="detail-summary-item">
                 <strong>平均總工時</strong>
                 <span>${formatDuration(group.averageTotalProcessingMs)}</span>
@@ -6146,6 +6148,30 @@ DW-810｜CNC線割機
     }
     const numeric = Number(String(value).replace(/,/g, "").trim());
     return Number.isNaN(numeric) ? cleanString(value) : numeric;
+  }
+
+  function summarizeOrderQuantities(orders) {
+    let totalQuantity = 0;
+    let hasQuantity = false;
+
+    (orders || []).forEach((order) => {
+      if (typeof order.quantity === "number" && Number.isFinite(order.quantity)) {
+        totalQuantity += order.quantity;
+        hasQuantity = true;
+      }
+    });
+
+    return {
+      totalQuantity,
+      hasQuantity,
+    };
+  }
+
+  function formatProductFlowQuantity(value) {
+    if (!Number.isFinite(value)) {
+      return "—";
+    }
+    return `${displayValue(value)}個`;
   }
 
   function normalizeProductSpec(value) {
