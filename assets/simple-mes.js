@@ -2156,7 +2156,7 @@ DW-810｜CNC線割機
               machineAverages: routeMachineAverages,
               waitingAverages: routeWaitingAverages,
               averageTotalProcessingMs: routeEligibleOrders.length ? average(routeEligibleOrders.map((order) => order.totalProcessingMs)) : 0,
-              averageUnitProcessingMs: averageValidDurations(routeEligibleOrders.map((order) => order.unitProcessingMs)),
+              averageUnitProcessingMs: calculateWeightedUnitProcessingMs(routeEligibleOrders),
               averageTotalWaitingMs: routeEligibleOrders.length ? average(routeEligibleOrders.map((order) => order.totalWaitingMs)) : 0,
               averageLeadTimeMs: routeEligibleOrders.length ? average(routeEligibleOrders.map((order) => order.flowLeadTimeMs)) : 0,
               averageAllowanceMs: routeEligibleOrders.length ? average(routeEligibleOrders.map((order) => order.flowAllowanceMs)) : 0,
@@ -2189,7 +2189,7 @@ DW-810｜CNC線割機
           machineAverages,
           transitionAverages,
           averageTotalProcessingMs: eligibleOrders.length ? average(eligibleOrders.map((order) => order.totalProcessingMs)) : 0,
-          averageUnitProcessingMs: averageValidDurations(eligibleOrders.map((order) => order.unitProcessingMs)),
+          averageUnitProcessingMs: calculateWeightedUnitProcessingMs(eligibleOrders),
           averageTotalWaitingMs: eligibleOrders.length ? average(eligibleOrders.map((order) => order.totalWaitingMs)) : 0,
           averageLeadTimeMs: eligibleOrders.length ? average(eligibleOrders.map((order) => normalizeDuration(order.totalProcessingMs) + normalizeDuration(order.totalWaitingMs))) : 0,
           averageAllowanceMs: eligibleOrders.length
@@ -6210,6 +6210,16 @@ DW-810｜CNC線割機
       return null;
     }
     return Math.round(normalizeDuration(totalProcessingMs) / quantity);
+  }
+
+  function calculateWeightedUnitProcessingMs(orders) {
+    const validOrders = (orders || []).filter((order) => typeof order.quantity === "number" && Number.isFinite(order.quantity) && order.quantity > 0);
+    if (!validOrders.length) {
+      return null;
+    }
+    const totalProcessingMs = validOrders.reduce((sum, order) => sum + normalizeDuration(order.totalProcessingMs), 0);
+    const totalQuantity = validOrders.reduce((sum, order) => sum + order.quantity, 0);
+    return totalQuantity > 0 ? Math.round(totalProcessingMs / totalQuantity) : null;
   }
 
   function averageValidDurations(values) {
