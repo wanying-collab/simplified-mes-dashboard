@@ -2001,6 +2001,7 @@ DW-810｜CNC線割機
 
           const flowLeadTimeMs = normalizeDuration(order.totalProcessingMs) + normalizeDuration(order.totalWaitingMs);
           const flowAllowanceMs = calculateWidenedDuration(order.totalProcessingMs);
+          const unitProcessingMs = calculateUnitProcessingMs(order.totalProcessingMs, order.quantity);
 
           return {
             ...order,
@@ -2008,6 +2009,7 @@ DW-810｜CNC線割機
             transitionCellMap,
             flowLeadTimeMs,
             flowAllowanceMs,
+            unitProcessingMs,
             machineRouteText: order.machineRoute.length ? order.machineRoute.join(" → ") : "尚未形成流程",
           };
         });
@@ -2154,6 +2156,7 @@ DW-810｜CNC線割機
               machineAverages: routeMachineAverages,
               waitingAverages: routeWaitingAverages,
               averageTotalProcessingMs: routeEligibleOrders.length ? average(routeEligibleOrders.map((order) => order.totalProcessingMs)) : 0,
+              averageUnitProcessingMs: averageValidDurations(routeEligibleOrders.map((order) => order.unitProcessingMs)),
               averageTotalWaitingMs: routeEligibleOrders.length ? average(routeEligibleOrders.map((order) => order.totalWaitingMs)) : 0,
               averageLeadTimeMs: routeEligibleOrders.length ? average(routeEligibleOrders.map((order) => order.flowLeadTimeMs)) : 0,
               averageAllowanceMs: routeEligibleOrders.length ? average(routeEligibleOrders.map((order) => order.flowAllowanceMs)) : 0,
@@ -2186,6 +2189,7 @@ DW-810｜CNC線割機
           machineAverages,
           transitionAverages,
           averageTotalProcessingMs: eligibleOrders.length ? average(eligibleOrders.map((order) => order.totalProcessingMs)) : 0,
+          averageUnitProcessingMs: averageValidDurations(eligibleOrders.map((order) => order.unitProcessingMs)),
           averageTotalWaitingMs: eligibleOrders.length ? average(eligibleOrders.map((order) => order.totalWaitingMs)) : 0,
           averageLeadTimeMs: eligibleOrders.length ? average(eligibleOrders.map((order) => normalizeDuration(order.totalProcessingMs) + normalizeDuration(order.totalWaitingMs))) : 0,
           averageAllowanceMs: eligibleOrders.length
@@ -2207,12 +2211,13 @@ DW-810｜CNC線割機
 
   function buildProductFlowRouteTableModel(routeGroup) {
     const headerColumns = [
-      { type: "fixed", key: "workOrderNo", headerLabel: "製令單號" },
+      { type: "fixed", key: "workOrderNo", headerLabel: "製令單號（數量）" },
       ...(routeGroup.displayColumns || []).map((column) => ({
         ...column,
         headerLabel: getProductFlowColumnHeader(column),
       })),
       { type: "fixed", key: "totalProcessingMs", headerLabel: "總工時" },
+      { type: "fixed", key: "unitProcessingMs", headerLabel: "單件工時" },
       { type: "fixed", key: "totalWaitingMs", headerLabel: "總等待時間" },
       { type: "fixed", key: "flowAllowanceMs", headerLabel: "總時間(含寬放1.3)" },
     ];
@@ -2223,10 +2228,13 @@ DW-810｜CNC線割機
     const bodyRows = (routeGroup.orders || []).map((order) =>
       headerColumns.map((column) => {
         if (column.key === "workOrderNo") {
-          return order.workOrderNo;
+          return formatWorkOrderWithQuantity(order.workOrderNo, order.quantity);
         }
         if (column.key === "totalProcessingMs") {
           return formatDuration(order.totalProcessingMs);
+        }
+        if (column.key === "unitProcessingMs") {
+          return formatOptionalDuration(order.unitProcessingMs);
         }
         if (column.key === "totalWaitingMs") {
           return formatDuration(order.totalWaitingMs);
@@ -2268,6 +2276,18 @@ DW-810｜CNC線割機
           }
           if (column.key === "totalProcessingMs") {
             return formatDuration(routeGroup.averageTotalProcessingMs);
+          }
+          return "—";
+        }),
+      },
+      {
+        label: "平均單件工時",
+        cells: headerColumns.map((column, index) => {
+          if (index === 0) {
+            return "平均單件工時";
+          }
+          if (column.key === "unitProcessingMs") {
+            return formatOptionalDuration(routeGroup.averageUnitProcessingMs);
           }
           return "—";
         }),
@@ -2328,6 +2348,7 @@ DW-810｜CNC線割機
         `分析樣本數：${group.analysisSampleCount} 筆`,
         `累計生產數量：${group.totalQuantityText}`,
         `平均總工時：${formatDuration(group.averageTotalProcessingMs)}`,
+        `平均單件工時：${formatOptionalDuration(group.averageUnitProcessingMs)}`,
         `平均等待時間：${formatDuration(group.averageTotalWaitingMs)}`,
         `平均LeadTime：${formatDuration(group.averageLeadTimeMs)}`,
         `平均總時間(含寬放1.3)：${formatDuration(group.averageAllowanceMs)}`,
@@ -2340,6 +2361,7 @@ DW-810｜CNC線割機
         `分析樣本數：${group.analysisSampleCount} 筆`,
         `累計生產數量：${group.totalQuantityText}`,
         `平均總工時：${formatDuration(group.averageTotalProcessingMs)}`,
+        `平均單件工時：${formatOptionalDuration(group.averageUnitProcessingMs)}`,
         `平均等待時間：${formatDuration(group.averageTotalWaitingMs)}`,
         `平均LeadTime：${formatDuration(group.averageLeadTimeMs)}`,
         `平均總時間(含寬放1.3)：${formatDuration(group.averageAllowanceMs)}`,
@@ -4696,7 +4718,7 @@ DW-810｜CNC線割機
             const tableModel = buildProductFlowRouteTableModel(routeGroup);
 
             const headerCells = tableModel.headerColumns
-              .slice(1, -3)
+              .slice(1, -4)
               .map((column) =>
                 column.type === "machine"
                   ? `<th class="flow-dynamic-col">${escapeHtml(column.headerLabel)}</th>`
@@ -4707,7 +4729,7 @@ DW-810｜CNC線割機
             const bodyRows = tableModel.bodyRows
               .map((row) => {
                 const dynamicCells = row
-                  .slice(1, -3)
+                  .slice(1, -4)
                   .map((value) => `<td class="mono">${escapeHtml(value)}</td>`)
                   .join("");
 
@@ -4715,6 +4737,7 @@ DW-810｜CNC線割機
                   <tr>
                     <td class="mono primary-text">${escapeHtml(row[0])}</td>
                     ${dynamicCells}
+                    <td class="mono">${escapeHtml(row[row.length - 4])}</td>
                     <td class="mono">${escapeHtml(row[row.length - 3])}</td>
                     <td class="mono">${escapeHtml(row[row.length - 2])}</td>
                     <td class="mono">${escapeHtml(row[row.length - 1])}</td>
@@ -4725,12 +4748,13 @@ DW-810｜CNC線割機
             const footerRows = tableModel.footerRows
               .map((footerRow) => {
                 const dynamicCells = footerRow.cells
-                  .slice(1, -3)
+                  .slice(1, -4)
                   .map((value) =>
                     value === "—" ? `<td class="flow-table-muted">—</td>` : `<td class="mono">${escapeHtml(value)}</td>`
                   )
                   .join("");
-                const totalWork = footerRow.cells[footerRow.cells.length - 3];
+                const totalWork = footerRow.cells[footerRow.cells.length - 4];
+                const unitWork = footerRow.cells[footerRow.cells.length - 3];
                 const totalWaiting = footerRow.cells[footerRow.cells.length - 2];
                 const totalAllowance = footerRow.cells[footerRow.cells.length - 1];
 
@@ -4739,6 +4763,7 @@ DW-810｜CNC線割機
                     <td class="product-flow-footer-title">${escapeHtml(footerRow.label)}</td>
                     ${dynamicCells}
                     ${totalWork === "—" ? `<td class="flow-table-muted">—</td>` : `<td class="mono">${escapeHtml(totalWork)}</td>`}
+                    ${unitWork === "—" ? `<td class="flow-table-muted">—</td>` : `<td class="mono">${escapeHtml(unitWork)}</td>`}
                     ${totalWaiting === "—" ? `<td class="flow-table-muted">—</td>` : `<td class="mono">${escapeHtml(totalWaiting)}</td>`}
                     ${totalAllowance === "—" ? `<td class="flow-table-muted">—</td>` : `<td class="mono">${escapeHtml(totalAllowance)}</td>`}
                   </tr>
@@ -4754,9 +4779,10 @@ DW-810｜CNC線割機
                   <table>
                     <thead>
                       <tr>
-                        <th>製令單號</th>
+                        <th>製令單號（數量）</th>
                         ${headerCells}
                         <th>總工時</th>
+                        <th>單件工時</th>
                         <th>總等待時間</th>
                         <th>總時間(含寬放1.3)</th>
                       </tr>
@@ -4782,6 +4808,7 @@ DW-810｜CNC線割機
                 <span>平均等待 ${formatDuration(group.averageTotalWaitingMs)}</span>
                 <span>平均 Lead Time ${formatDuration(group.averageLeadTimeMs)}</span>
                 <span>平均總時間 ${formatDuration(group.averageAllowanceMs)}</span>
+                <span>平均單件工時 ${formatOptionalDuration(group.averageUnitProcessingMs)}</span>
               </div>
             </summary>
             <div class="detail-summary-grid product-flow-group-summary">
@@ -4800,6 +4827,10 @@ DW-810｜CNC線割機
               <div class="detail-summary-item">
                 <strong>平均總時間(含寬放1.3)</strong>
                 <span>${formatDuration(group.averageAllowanceMs)}</span>
+              </div>
+              <div class="detail-summary-item">
+                <strong>平均單件工時</strong>
+                <span>${formatOptionalDuration(group.averageUnitProcessingMs)}</span>
               </div>
             </div>
             <div class="product-flow-route-stack">${routeTables}</div>
@@ -6172,6 +6203,33 @@ DW-810｜CNC線割機
       return "—";
     }
     return `${displayValue(value)}個`;
+  }
+
+  function calculateUnitProcessingMs(totalProcessingMs, quantity) {
+    if (typeof quantity !== "number" || !Number.isFinite(quantity) || quantity <= 0) {
+      return null;
+    }
+    return Math.round(normalizeDuration(totalProcessingMs) / quantity);
+  }
+
+  function averageValidDurations(values) {
+    const safeValues = (values || []).filter((value) => Number.isFinite(value) && value > 0);
+    return safeValues.length ? average(safeValues) : null;
+  }
+
+  function formatOptionalDuration(value) {
+    if (!Number.isFinite(value) || value <= 0) {
+      return "—";
+    }
+    return formatDuration(value);
+  }
+
+  function formatWorkOrderWithQuantity(workOrderNo, quantity) {
+    const safeWorkOrderNo = workOrderNo || "";
+    if (typeof quantity === "number" && Number.isFinite(quantity) && quantity > 0) {
+      return `${safeWorkOrderNo}（${displayValue(quantity)}個）`;
+    }
+    return safeWorkOrderNo;
   }
 
   function normalizeProductSpec(value) {
