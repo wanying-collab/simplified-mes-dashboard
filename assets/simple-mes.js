@@ -118,6 +118,7 @@ DW-810｜CNC線割機
     requiredItem: ["需求料件", "requireditem", "required_item"],
     productSpec: ["品名規格", "productspec", "product_spec"],
     quantity: ["生產數量", "數量", "quantity", "qty"],
+    unit: ["單位", "unit", "uom", "qtyunit", "quantityunit", "quantity_unit"],
     actionStatus: ["動作狀態", "狀態", "status", "actionstatus", "action_status"],
     recordedAt: ["紀錄時間", "記錄時間", "recordedat", "recorded_at"],
     waitingHours: ["等待工時", "waitinghours", "waiting_hours"],
@@ -1093,6 +1094,7 @@ DW-810｜CNC線割機
       productSpec: originalProductSpec,
       normalizedProductSpec,
       quantity: parseQuantity(mapped.quantity),
+      unit: cleanString(mapped.unit),
       actionStatus: normalizeStatus(mapped.actionStatus),
       recordedAt: parseDateTime(mapped.recordedAt),
       waitingHours: parseDurationString(mapped.waitingHours),
@@ -1446,6 +1448,7 @@ DW-810｜CNC線割機
       productSpec: firstNonEmpty(records.map((item) => item.productSpec)),
       normalizedProductSpec: firstNonEmpty(records.map((item) => item.normalizedProductSpec)),
       quantity: firstNonEmpty(records.map((item) => item.quantity)),
+      unit: firstNonEmpty(records.map((item) => item.unit)),
       parentItemNo: firstNonEmpty(records.map((item) => item.parentItemNo)),
       requiredItem: firstNonEmpty(records.map((item) => item.requiredItem)),
       machineRoute,
@@ -1807,6 +1810,7 @@ DW-810｜CNC線割機
           return aTime - bTime || a.workOrderNo.localeCompare(b.workOrderNo);
         });
         const eligibleOrders = sortedOrders.filter((order) => isEligibleAverageOrder(order));
+        const quantitySummary = summarizeOrderQuantities(sortedOrders);
 
         return {
           normalizedProductSpec,
@@ -1814,6 +1818,8 @@ DW-810｜CNC線割機
           orderCount: sortedOrders.length,
           completedCount: sortedOrders.filter((item) => item.completed).length,
           includeCount: eligibleOrders.length,
+          totalQuantity: quantitySummary.hasQuantity ? quantitySummary.totalQuantity : null,
+          totalQuantityText: formatQuantitySummaryText(quantitySummary),
           avgProcessingMs: eligibleOrders.length ? average(eligibleOrders.map((item) => item.totalProcessingMs)) : 0,
           avgWaitingMs: eligibleOrders.length ? average(eligibleOrders.map((item) => item.totalWaitingMs)) : 0,
           avgLeadTimeMs: eligibleOrders.length ? average(eligibleOrders.map((item) => item.leadTimeMs)) : 0,
@@ -2228,7 +2234,7 @@ DW-810｜CNC線割機
     const bodyRows = (routeGroup.orders || []).map((order) =>
       headerColumns.map((column) => {
         if (column.key === "workOrderNo") {
-          return formatWorkOrderWithQuantity(order.workOrderNo, order.quantity);
+          return formatWorkOrderWithQuantity(order.workOrderNo, order.quantity, order.unit);
         }
         if (column.key === "totalProcessingMs") {
           return formatDuration(order.totalProcessingMs);
@@ -4595,7 +4601,7 @@ DW-810｜CNC線割機
             <summary>
               <div>
                 <strong>${escapeHtml(group.productSpec)}</strong>
-                <div class="foot-note">製令單筆數 ${group.orderCount}｜已完成 ${group.completedCount}｜有效樣本 ${group.includeCount}</div>
+                <div class="foot-note">製令單筆數：${group.orderCount}｜已完成：${group.completedCount}｜有效樣本：${group.includeCount}｜累計生產數量：${escapeHtml(group.totalQuantityText)}</div>
               </div>
               <div class="comparison-summary-grid">
                 <span>平均加工 ${formatDuration(group.avgProcessingMs)}</span>
@@ -4608,7 +4614,7 @@ DW-810｜CNC線割機
               <table>
                 <thead>
                   <tr>
-                    <th>製令單號</th>
+                    <th>製令單號（數量）</th>
                     <th>總加工工時</th>
                     <th>總等待工時</th>
                     <th>Lead Time</th>
@@ -4642,7 +4648,7 @@ DW-810｜CNC線割機
 
                         const operatorAnalysisBlock = `
                           <details class="inline-details comparison-inline-details">
-                            <summary class="link-summary"><span class="mono primary-text">${escapeHtml(order.workOrderNo)}</span></summary>
+                            <summary class="link-summary"><span class="mono primary-text">${escapeHtml(formatWorkOrderWithQuantity(order.workOrderNo, order.quantity, order.unit))}</span></summary>
                             <div class="foot-note">加工人員分析。點擊人員名稱可查看人員詳細頁。</div>
                             <div class="table-shell nested-table-shell">
                               <table>
@@ -6184,17 +6190,24 @@ DW-810｜CNC線割機
   function summarizeOrderQuantities(orders) {
     let totalQuantity = 0;
     let hasQuantity = false;
+    const unitSet = new Set();
 
     (orders || []).forEach((order) => {
       if (typeof order.quantity === "number" && Number.isFinite(order.quantity)) {
         totalQuantity += order.quantity;
         hasQuantity = true;
       }
+      const safeUnit = cleanString(order && order.unit);
+      if (safeUnit) {
+        unitSet.add(safeUnit);
+      }
     });
 
     return {
       totalQuantity,
       hasQuantity,
+      unit: unitSet.size === 1 ? Array.from(unitSet)[0] : "",
+      hasMixedUnits: unitSet.size > 1,
     };
   }
 
@@ -6234,10 +6247,30 @@ DW-810｜CNC線割機
     return formatDuration(value);
   }
 
-  function formatWorkOrderWithQuantity(workOrderNo, quantity) {
+  function formatQuantityWithUnit(quantity, unit) {
+    if (typeof quantity !== "number" || !Number.isFinite(quantity) || quantity <= 0) {
+      return "";
+    }
+    const safeUnit = cleanString(unit);
+    return `${displayValue(quantity)}${safeUnit ? ` ${safeUnit}` : "個"}`;
+  }
+
+  function formatQuantitySummaryText(summary) {
+    if (!summary || !summary.hasQuantity) {
+      return "—";
+    }
+    const quantityText = displayValue(summary.totalQuantity);
+    if (summary.hasMixedUnits) {
+      return `${quantityText}（混合單位）`;
+    }
+    return summary.unit ? `${quantityText} ${summary.unit}` : `${quantityText}個`;
+  }
+
+  function formatWorkOrderWithQuantity(workOrderNo, quantity, unit) {
     const safeWorkOrderNo = workOrderNo || "";
-    if (typeof quantity === "number" && Number.isFinite(quantity) && quantity > 0) {
-      return `${safeWorkOrderNo}（${displayValue(quantity)}個）`;
+    const quantityText = formatQuantityWithUnit(quantity, unit);
+    if (quantityText) {
+      return `${safeWorkOrderNo}（${quantityText}）`;
     }
     return safeWorkOrderNo;
   }
