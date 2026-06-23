@@ -2377,6 +2377,7 @@ DW-810｜CNC線割機
       (group.routeGroups || []).forEach((routeGroup) => {
         const tableModel = buildProductFlowRouteTableModel(routeGroup);
         const headerRow = tableModel.headerColumns.map((column) => column.headerLabel);
+        const routeOrderRows = (routeGroup.orders || []).map((order) => [formatWorkOrderWithQuantity(order.workOrderNo, order.quantity, order.unit)]);
 
         detailRows.push([`流程：${routeGroup.routeLabel}`]);
         detailRowRoles.push("route");
@@ -2395,8 +2396,12 @@ DW-810｜CNC線割機
 
         summaryRows.push([`流程：${routeGroup.routeLabel}`]);
         summaryRowRoles.push("route");
-        summaryRows.push(headerRow);
+        summaryRows.push(["製令單號（數量）"]);
         summaryRowRoles.push("header");
+        routeOrderRows.forEach((row) => {
+          summaryRows.push(row);
+          summaryRowRoles.push("body");
+        });
         tableModel.footerRows.forEach((row) => {
           summaryRows.push(row.cells);
           summaryRowRoles.push("footer");
