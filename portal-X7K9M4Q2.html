@@ -8,19 +8,6 @@
       content="簡化版 MES 工時整理與排程預估，提供製令單流程表、品名規格 Lead Time 表、排程預估表與等待分析。"
     />
     <title>簡化版 MES 工時整理與排程預估</title>
-    <script>
-      (function () {
-        var sessionKey = "mes_access_granted_v1";
-        var accessToken = "e8843c11623b0e6bfc0921ee2f86b4f127c5cac825de60c8fcfbc2918aee312b";
-        try {
-          if (sessionStorage.getItem(sessionKey) !== accessToken) {
-            window.location.replace("./index.html");
-          }
-        } catch (error) {
-          window.location.replace("./index.html");
-        }
-      })();
-    </script>
     <link rel="stylesheet" href="./assets/simple-mes.css" />
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script defer src="./assets/simple-mes.js"></script>

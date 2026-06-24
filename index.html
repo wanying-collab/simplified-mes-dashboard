@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="簡化版 MES 工時整理與排程預估登入入口，進入後可使用製令單流程、品名規格 Lead Time 表、排程預估、等待分析與機台利用率功能。"
+      content="簡化版 MES 工時整理與排程預估入口，開啟後可直接使用製令單流程、品名規格 Lead Time 表、排程預估、等待分析與機台利用率功能。"
     />
-    <title>簡化版 MES 工時整理與排程預估｜登入入口</title>
+    <title>簡化版 MES 工時整理與排程預估｜入口頁</title>
     <style>
       :root {
         color-scheme: light;
@@ -314,32 +314,23 @@
 
         <section class="panel">
           <div class="login-box">
-            <h2>進入系統</h2>
-            <p>輸入分享密碼後，即可開啟 MES 分析儀表板。</p>
-
-            <div class="field">
-              <label for="passwordInput">系統密碼</label>
-              <div class="input-row">
-                <input id="passwordInput" type="password" autocomplete="current-password" placeholder="請輸入密碼" />
-                <button id="togglePasswordBtn" class="toggle" type="button">顯示</button>
-              </div>
-            </div>
+            <h2>正在進入系統</h2>
+            <p>目前 MES 已取消密碼登入，開啟後會直接進入主畫面。</p>
 
             <div class="actions">
-              <button id="loginBtn" class="btn btn-primary" type="button">登入 MES 系統</button>
-              <button id="clearBtn" class="btn btn-secondary" type="button">清除輸入</button>
+              <a class="btn btn-primary" href="./portal-x7k9m4q2/">立即進入 MES 系統</a>
             </div>
 
-            <div id="message" class="message" aria-live="polite"></div>
+            <div id="message" class="message success" aria-live="polite">系統將自動跳轉到 MES 主畫面…</div>
 
             <ul class="helper-list">
-              <li>登入後可直接匯入 Excel / CSV。</li>
+              <li>可直接匯入 Excel / CSV。</li>
               <li>也可貼上 TSV 文字資料開始分析。</li>
               <li>支援製令單流程、等待時間、機台利用率與人員分析。</li>
             </ul>
 
             <div class="muted-note">
-              如果已經登入過，系統會直接進入主畫面。若畫面沒有自動跳轉，請重新整理後再試一次。
+              若沒有自動跳轉，請點擊上方按鈕直接進入 MES 主畫面。
             </div>
           </div>
         </section>
@@ -348,81 +339,8 @@
 
     <script>
       (function () {
-        var SESSION_KEY = "mes_access_granted_v1";
-        var PASSWORD_HASH = "e8843c11623b0e6bfc0921ee2f86b4f127c5cac825de60c8fcfbc2918aee312b";
         var TARGET_URL = "./portal-x7k9m4q2/";
-
-        var passwordInput = document.getElementById("passwordInput");
-        var loginBtn = document.getElementById("loginBtn");
-        var clearBtn = document.getElementById("clearBtn");
-        var togglePasswordBtn = document.getElementById("togglePasswordBtn");
-        var message = document.getElementById("message");
-
-        try {
-          if (sessionStorage.getItem(SESSION_KEY) === PASSWORD_HASH) {
-            window.location.replace(TARGET_URL);
-            return;
-          }
-        } catch (error) {}
-
-        function setMessage(text, type) {
-          message.textContent = text || "";
-          message.className = "message" + (type ? " " + type : "");
-        }
-
-        async function sha256Hex(value) {
-          var data = new TextEncoder().encode(value);
-          var digest = await crypto.subtle.digest("SHA-256", data);
-          return Array.from(new Uint8Array(digest)).map(function (byte) {
-            return byte.toString(16).padStart(2, "0");
-          }).join("");
-        }
-
-        async function handleLogin() {
-          var password = (passwordInput.value || "").trim();
-          if (!password) {
-            setMessage("請先輸入密碼。", "error");
-            passwordInput.focus();
-            return;
-          }
-
-          loginBtn.disabled = true;
-          setMessage("正在驗證密碼…", "");
-
-          try {
-            var hashed = await sha256Hex(password);
-            if (hashed !== PASSWORD_HASH) {
-              setMessage("密碼不正確，請再試一次。", "error");
-              return;
-            }
-
-            try { sessionStorage.setItem(SESSION_KEY, PASSWORD_HASH); } catch (error) {}
-            setMessage("登入成功，正在進入 MES 系統…", "success");
-            window.location.replace(TARGET_URL);
-          } catch (error) {
-            setMessage("目前無法完成驗證，請重新整理頁面後再試。", "error");
-          } finally {
-            loginBtn.disabled = false;
-          }
-        }
-
-        loginBtn.addEventListener("click", handleLogin);
-        clearBtn.addEventListener("click", function () {
-          passwordInput.value = "";
-          setMessage("", "");
-          passwordInput.focus();
-        });
-        togglePasswordBtn.addEventListener("click", function () {
-          var isPassword = passwordInput.type === "password";
-          passwordInput.type = isPassword ? "text" : "password";
-          togglePasswordBtn.textContent = isPassword ? "隱藏" : "顯示";
-        });
-        passwordInput.addEventListener("keydown", function (event) {
-          if (event.key === "Enter") {
-            event.preventDefault();
-            handleLogin();
-          }
-        });
+        window.location.replace(TARGET_URL);
       })();
     </script>
   </body>

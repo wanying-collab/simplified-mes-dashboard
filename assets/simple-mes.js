@@ -1,6 +1,4 @@
 ﻿(function () {
-  const SESSION_KEY = "mes_access_granted_v1";
-  const PASSWORD_HASH = "e8843c11623b0e6bfc0921ee2f86b4f127c5cac825de60c8fcfbc2918aee312b";
   const DEFAULT_BREAK_HOURS = 1;
   const DEFAULT_BREAK_MS = DEFAULT_BREAK_HOURS * 60 * 60 * 1000;
   const FIXED_BREAK_WINDOWS = [
@@ -140,16 +138,6 @@ DW-810｜CNC線割機
 
   const root = document.getElementById("root");
   if (!root) {
-    return;
-  }
-
-  try {
-    if (sessionStorage.getItem(SESSION_KEY) !== PASSWORD_HASH) {
-      window.location.replace("./index.html");
-      return;
-    }
-  } catch (error) {
-    window.location.replace("./index.html");
     return;
   }
 
