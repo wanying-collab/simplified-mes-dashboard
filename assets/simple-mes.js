@@ -76,6 +76,7 @@ DW-810｜CNC線割機
   const state = {
     sourceLabel: "",
     rawRows: [],
+    latestOperatorRecords: new Map(),
     validRecords: [],
     invalidRecords: [],
     archiveData: {
@@ -988,6 +989,7 @@ DW-810｜CNC線割機
 
     state.sourceLabel = sourceLabel;
     state.rawRows = rows;
+    state.latestOperatorRecords = buildLatestOperatorRecords(prepared);
     state.validRecords = validRecords;
     state.invalidRecords = invalidRecords;
     state.archiveData = buildYearlyArchiveData(validRecords);
@@ -2515,7 +2517,25 @@ DW-810｜CNC線割機
       .sort((a, b) => b.waitingMs - a.waitingMs || a.workOrderNo.localeCompare(b.workOrderNo));
   }
 
-  function calculateOperatorSummary(workOrders) {
+  function buildLatestOperatorRecords(records) {
+    const latest = new Map();
+    const actions = new Set(["Start", "Pause", "Resume", "End"]);
+    // Use all imported rows, including rows rejected by work-order validation.
+    (records || []).forEach((record) => {
+      const operator = cleanString(record.operator);
+      const date = record.recordedAt;
+      if (!operator || !actions.has(record.actionStatus) || !(date instanceof Date) || !Number.isFinite(date.getTime())) {
+        return;
+      }
+      const previous = latest.get(operator);
+      if (!previous || date.getTime() > previous.recordedAt.getTime()) {
+        latest.set(operator, record);
+      }
+    });
+    return latest;
+  }
+
+  function calculateOperatorSummary(workOrders, latestOperatorRecords = state.latestOperatorRecords) {
     const operatorMap = new Map();
 
     (workOrders || []).forEach((order) => {
@@ -2534,14 +2554,12 @@ DW-810｜CNC線割機
             workOrders: new Set(),
             machines: new Set(),
             productSpecs: new Set(),
-            latestRecordAt: null,
             records: [],
           });
         }
 
         const target = operatorMap.get(operator);
         const stationName = composeMachineLabel(station.machineId, station.machineName) || "未填機台";
-        const markAt = station.endAt instanceof Date ? station.endAt : station.startAt;
 
         target.totalProcessingMs += normalizeDuration(station.processingMs);
         target.segmentCount += 1;
@@ -2549,9 +2567,6 @@ DW-810｜CNC線割機
         target.machines.add(stationName);
         if (order.productSpec) {
           target.productSpecs.add(order.productSpec);
-        }
-        if (markAt instanceof Date && (!target.latestRecordAt || markAt.getTime() > target.latestRecordAt.getTime())) {
-          target.latestRecordAt = markAt;
         }
 
         target.records.push({
@@ -2583,7 +2598,7 @@ DW-810｜CNC線割機
         machineList: Array.from(item.machines).sort(),
         productSpecs: Array.from(item.productSpecs).sort(),
         warningCount: item.warningCount || 0,
-        latestRecordAt: item.latestRecordAt,
+        latestRecordAt: latestOperatorRecords.get(item.operator)?.recordedAt || null,
         records: item.records.sort((a, b) => {
           const aTime = a.endAt instanceof Date ? a.endAt.getTime() : a.startAt instanceof Date ? a.startAt.getTime() : 0;
           const bTime = b.endAt instanceof Date ? b.endAt.getTime() : b.startAt instanceof Date ? b.startAt.getTime() : 0;
