@@ -318,6 +318,12 @@ DW-810｜CNC線割機
           <div id="messageBox" class="message-box" style="display:none"></div>
         </section>
 
+        <details class="panel section-block invalid-records-panel" id="invalid-records-details">
+          <summary><h3>無效資料明細</h3></summary>
+          <p class="panel-note">顯示本次匯入的全部無效資料，與 KPI 筆數一致，不受日期、搜尋或工單狀態篩選影響。</p>
+          <div id="invalidRecordsTable"></div>
+        </details>
+
         <section class="panel section-block" id="archive-analysis">
           <div class="section-title">
             <div>
@@ -636,6 +642,10 @@ DW-810｜CNC線割機
         const targetId = button.getAttribute("data-nav-target");
         const targetSection = targetId ? document.getElementById(targetId) : null;
         if (targetSection) {
+          const details = targetSection.closest("details");
+          if (details) {
+            details.open = true;
+          }
           targetSection.scrollIntoView({ behavior: "smooth", block: "start" });
           if (mesSidebar) {
             mesSidebar.classList.remove("is-open");
@@ -649,6 +659,14 @@ DW-810｜CNC線割機
     root.addEventListener("click", (event) => {
       const target = event.target;
       if (!(target instanceof Element)) {
+        return;
+      }
+
+      if (target.closest("[data-invalid-records-link]")) {
+        const details = document.getElementById("invalid-records-details");
+        details.open = true;
+        details.querySelector("summary").focus({ preventScroll: true });
+        details.scrollIntoView({ behavior: "smooth", block: "start" });
         return;
       }
 
@@ -3368,6 +3386,7 @@ DW-810｜CNC線割機
     renderRangeLabel(scoped.range);
     renderFilterState(view, scoped);
     renderSummary(view, scoped);
+    renderInvalidRecordsSection();
     renderArchiveSection(scoped);
     renderMessage();
     renderFlowTable(view);
@@ -3462,7 +3481,9 @@ DW-810｜CNC線割機
     summaryGrid.innerHTML = [
       buildSummaryCard("資料來源", escapeHtml(state.sourceLabel || "尚未載入資料"), state.sourceLabel ? "目前顯示的是已載入資料。" : "請上傳 Excel / CSV 或貼上 TSV。"),
       buildSummaryCard("機台啟停原始筆數", String(state.rawRows.length || 0), "匯入前的原始啟停紀錄數量"),
-      buildSummaryCard("機台啟停有效筆數", String(state.validRecords.length || 0), `無效資料 ${state.invalidRecords.length || 0} 筆`),
+      buildSummaryCard("機台啟停有效筆數", String(state.validRecords.length || 0), state.invalidRecords.length
+        ? `<button type="button" class="summary-detail-link" data-invalid-records-link aria-controls="invalid-records-details" title="查看全部無效資料明細">無效資料 ${state.invalidRecords.length} 筆</button>`
+        : "無效資料 0 筆"),
       buildSummaryCard("目前顯示製令單", String(view.filteredWorkOrders.length || 0), `全部資料 ${scoped.workOrders.length || 0} 張`),
       buildSummaryCard("已完成數", String(completedCount || 0), `未完成 ${incompleteCount} 張｜異常 ${anomalyCount} 張`),
       buildSummaryCard("總加工工時", formatDuration(totalProcessingMs), "目前篩選區間內的總加工工時"),
@@ -3474,6 +3495,38 @@ DW-810｜CNC線割機
       buildSummaryCard("不含假日利用率", formatPercentage(utilization.withoutHolidayUtilization), "可用工時排除未開工假日"),
       buildSummaryCard("全部資料數", String(scoped.workOrders.length || 0), "可搭配搜尋與篩選查看"),
     ].join("");
+  }
+
+  function renderInvalidRecordsSection() {
+    const container = document.getElementById("invalidRecordsTable");
+    if (!state.invalidRecords.length) {
+      container.innerHTML = '<div class="empty-card">目前沒有無效資料。</div>';
+      return;
+    }
+
+    // Read rejected values from the original row for display only, without revalidating them.
+    const originalValue = (record, field) => {
+      const entry = Object.entries(record.originalRow || {}).find(([key]) => findMappedField(normalizeHeader(key)) === field);
+      return entry ? displayValue(entry[1]) : "—";
+    };
+    container.innerHTML = `
+      <p>無效資料共 ${state.invalidRecords.length} 筆</p>
+      <div class="table-shell nested-table-shell">
+        <table>
+          <thead><tr><th>原始資料列</th><th>製令單號</th><th>品名規格</th><th>使用者</th><th>機台</th><th>原始動作</th><th>原始紀錄時間</th><th>無效原因</th></tr></thead>
+          <tbody>${state.invalidRecords.map((record) => `
+            <tr>
+              <td>${escapeHtml(record.id)}</td>
+              <td>${escapeHtml(record.workOrderNo || "—")}</td>
+              <td>${escapeHtml(record.productSpec || "—")}</td>
+              <td>${escapeHtml(record.operator || "—")}</td>
+              <td>${escapeHtml(composeMachineLabel(record.machineId, record.machineName) || "—")}</td>
+              <td>${escapeHtml(originalValue(record, "actionStatus"))}</td>
+              <td>${escapeHtml(originalValue(record, "recordedAt"))}</td>
+              <td>${escapeHtml(record.invalidReason || "必要欄位缺漏")}</td>
+            </tr>`).join("")}</tbody>
+        </table>
+      </div>`;
   }
 
   function renderArchiveSection(scoped) {

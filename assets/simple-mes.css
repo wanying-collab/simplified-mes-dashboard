@@ -534,6 +534,43 @@ textarea {
   line-height: 1.7;
 }
 
+.summary-detail-link {
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #6d28d9;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.summary-detail-link:hover {
+  color: #5b21b6;
+  background: #ede9fe;
+}
+
+.summary-detail-link:focus-visible,
+.invalid-records-panel > summary:focus-visible {
+  outline: 2px solid #8b5cf6;
+  outline-offset: 4px;
+}
+
+.invalid-records-panel {
+  scroll-margin-top: 24px;
+}
+
+.invalid-records-panel > summary {
+  cursor: pointer;
+  color: #6d28d9;
+}
+
+.invalid-records-panel > summary h3 {
+  display: inline;
+}
+
 .message-box {
   margin-top: 18px;
   padding: 14px 16px;
