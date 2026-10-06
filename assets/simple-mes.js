@@ -5192,7 +5192,7 @@ DW-810｜CNC線割機
   }
 
   async function exportAllAnalysisReport() {
-    if (!state.validRecords.length) {
+    if (!state.rawRows.length) {
       setMessage("目前沒有可匯出的完整分析資料。", "error");
       return;
     }
@@ -5214,6 +5214,8 @@ DW-810｜CNC線割機
       appendSheet(workbook, "疑似漏按暫停", sheets.missedPauseSheet);
       appendSheet(workbook, "異常資料", sheets.anomalySheet);
       appendSheet(workbook, "原始資料", sheets.rawSheet);
+
+      appendSheet(workbook, "原始報工紀錄", buildRawReportingSheet(state.rawRows));
 
       const fileName = `MES全部分析報表_${buildRangeFileLabel(scoped.range)}.xlsx`;
       await saveExcelWorkbook(workbook, fileName);
@@ -5296,6 +5298,8 @@ DW-810｜CNC線割機
       appendSheet(workbook, "年度歸檔總覽", overviewSheet);
       appendSheet(workbook, "年度製令單明細", detailSheet);
       appendSheet(workbook, "年度機台統計", machineYearSheet);
+      const archivedOrderNumbers = new Set(archiveOrders.map((order) => order.workOrderNo));
+      appendSheet(workbook, "年度原始報工紀錄", buildRawReportingSheet(state.rawRows, archivedOrderNumbers));
 
       const fileName = `MES年度歸檔_${selectedYear}.xlsx`;
       await saveExcelWorkbook(workbook, fileName);
@@ -5303,6 +5307,59 @@ DW-810｜CNC線割機
     } catch (error) {
       setMessage(error.message || "年度歷史資料匯出失敗。", "error");
     }
+  }
+
+  function buildRawReportingSheet(rawRows, workOrderNumbers = null) {
+    const columns = [
+      ["使用者", "operator"],
+      ["設備編號", "machineId"],
+      ["設備名稱", "machineName"],
+      ["製令單號", "workOrderNo"],
+      ["母件編號", "parentItemNo"],
+      ["需求料件", "requiredItem"],
+      ["品名規格", "productSpec"],
+      ["生產數量", "quantity"],
+      ["動作狀態", "actionStatus"],
+      ["紀錄時間", "recordedAt"],
+    ];
+    const requiredFields = new Set(columns.map(([, field]) => field));
+    const headerFields = new Map();
+    const extraHeaders = new Set();
+    const includedRows = [];
+
+    (rawRows || []).forEach((row) => {
+      const fields = new Map();
+      Object.keys(row || {}).forEach((header) => {
+        if (!headerFields.has(header)) {
+          headerFields.set(header, findMappedField(normalizeHeader(header)));
+        }
+        const field = headerFields.get(header);
+        if (field) {
+          fields.set(field, row[header]);
+        }
+      });
+
+      // Select archives by order, not event year, so cross-year and invalid events survive.
+      if (workOrderNumbers && !workOrderNumbers.has(cleanString(fields.get("workOrderNo")))) {
+        return;
+      }
+      Object.keys(row || {}).forEach((header) => {
+        if (!requiredFields.has(headerFields.get(header))) {
+          extraHeaders.add(header);
+        }
+      });
+      includedRows.push({ row, fields });
+    });
+
+    const extras = Array.from(extraHeaders);
+    // Use imported values directly: no status/date conversion, sorting, merging or deduplication.
+    return [
+      [...columns.map(([label]) => label), ...extras],
+      ...includedRows.map(({ row, fields }) => [
+        ...columns.map(([, field]) => fields.get(field) ?? ""),
+        ...extras.map((header) => row[header] ?? ""),
+      ]),
+    ];
   }
 
   function buildAnalysisSheets(scoped) {
