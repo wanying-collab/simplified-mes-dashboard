@@ -657,6 +657,36 @@ textarea {
   background: #f5f3ff;
 }
 
+.raw-reporting-table-shell {
+  margin-top: 14px;
+  max-height: 560px;
+}
+
+.raw-reporting-table-shell table {
+  min-width: 1600px;
+}
+
+.raw-reporting-table-shell th,
+.raw-reporting-table-shell td {
+  min-width: 110px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.raw-reporting-pagination {
+  align-items: center;
+}
+
+.raw-reporting-pagination[hidden] {
+  display: none;
+}
+
+#raw-reporting-records button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
 .mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }

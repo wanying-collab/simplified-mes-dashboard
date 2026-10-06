@@ -9,6 +9,7 @@
   const DEFAULT_MACHINE_AVAILABLE_HOURS = 8;
   const DEFAULT_MACHINE_AVAILABLE_MS = DEFAULT_MACHINE_AVAILABLE_HOURS * 60 * 60 * 1000;
   const MAX_UNFINISHED_MS = 30 * 24 * 60 * 60 * 1000;
+  const RAW_REPORTING_PAGE_SIZE = 100;
   const KEEP_HOLIDAY_STATUSES = new Set(["Start", "Resume", "End"]);
   const NATIONAL_HOLIDAYS = new Set([]);
   const MACHINE_MASTER_STORAGE_KEY = "mes_machine_master_v1";
@@ -76,6 +77,7 @@ DW-810｜CNC線割機
   const state = {
     sourceLabel: "",
     rawRows: [],
+    rawReportingFilters: { searchTerm: "", actionStatus: "all", page: 1 },
     latestOperatorRecords: new Map(),
     validRecords: [],
     invalidRecords: [],
@@ -324,6 +326,43 @@ DW-810｜CNC線割機
           <div id="invalidRecordsTable"></div>
         </details>
 
+        <section class="panel section-block" id="raw-reporting-records">
+          <div class="section-title">
+            <div>
+              <h3 id="raw-reporting-heading">原始報工紀錄</h3>
+              <p>逐筆顯示目前匯入的全部原始報工事件，包含未完成、已歸檔與無效資料；不合併事件、不重新計算工時，也不受上方分析篩選影響。</p>
+            </div>
+          </div>
+          <div class="search-grid">
+            <div class="search-box">
+              <label for="rawReportingSearchInput">搜尋製令單號 / 設備編號 / 品名規格 / 使用者</label>
+              <input id="rawReportingSearchInput" class="search-input" type="search" placeholder="輸入製令單號、設備編號、品名規格或使用者" />
+            </div>
+            <div class="search-box">
+              <label for="rawReportingStatusSelect">動作狀態</label>
+              <select id="rawReportingStatusSelect" class="search-input">
+                <option value="all">全部</option>
+                <option value="Start">Start / 開始</option>
+                <option value="Pause">Pause / 暫停</option>
+                <option value="Resume">Resume / 恢復</option>
+                <option value="End">End / 結束</option>
+              </select>
+            </div>
+          </div>
+          <div class="action-row">
+            <button id="clearRawReportingFiltersBtn" class="btn-secondary" type="button">清除原始紀錄篩選</button>
+            <button id="exportRawReportingBtn" class="btn-primary" type="button">匯出原始報工紀錄</button>
+          </div>
+          <p class="panel-note">搜尋與動作篩選只影響此表。匯出包含全部原始紀錄（不限篩選結果或本頁），與總匯出的「原始報工紀錄」工作表一致。</p>
+          <div id="rawReportingResultNote" class="filter-result-note" role="status" aria-live="polite"></div>
+          <div id="rawReportingTable"></div>
+          <div id="rawReportingPagination" class="action-row raw-reporting-pagination" aria-label="原始報工紀錄分頁" hidden>
+            <button id="rawReportingPrevBtn" class="btn-secondary" type="button">上一頁</button>
+            <span id="rawReportingPageLabel"></span>
+            <button id="rawReportingNextBtn" class="btn-secondary" type="button">下一頁</button>
+          </div>
+        </section>
+
         <section class="panel section-block" id="archive-analysis">
           <div class="section-title">
             <div>
@@ -552,6 +591,33 @@ DW-810｜CNC線割機
       renderAll();
       productFlowSearchInput.focus();
     });
+
+    document.getElementById("rawReportingSearchInput").addEventListener("input", (event) => {
+      state.rawReportingFilters.searchTerm = event.target.value || "";
+      state.rawReportingFilters.page = 1;
+      renderRawReportingSection();
+    });
+    document.getElementById("rawReportingStatusSelect").addEventListener("change", (event) => {
+      state.rawReportingFilters.actionStatus = event.target.value;
+      state.rawReportingFilters.page = 1;
+      renderRawReportingSection();
+    });
+    document.getElementById("clearRawReportingFiltersBtn").addEventListener("click", () => {
+      state.rawReportingFilters = { searchTerm: "", actionStatus: "all", page: 1 };
+      document.getElementById("rawReportingSearchInput").value = "";
+      document.getElementById("rawReportingStatusSelect").value = "all";
+      renderRawReportingSection();
+      document.getElementById("rawReportingSearchInput").focus();
+    });
+    document.getElementById("rawReportingPrevBtn").addEventListener("click", () => {
+      state.rawReportingFilters.page -= 1;
+      renderRawReportingSection();
+    });
+    document.getElementById("rawReportingNextBtn").addEventListener("click", () => {
+      state.rawReportingFilters.page += 1;
+      renderRawReportingSection();
+    });
+    document.getElementById("exportRawReportingBtn").addEventListener("click", () => exportRawReportingReport());
 
     Array.from(document.querySelectorAll("[data-status-filter]")).forEach((button) => {
       button.addEventListener("click", () => {
@@ -3387,6 +3453,7 @@ DW-810｜CNC線割機
     renderFilterState(view, scoped);
     renderSummary(view, scoped);
     renderInvalidRecordsSection();
+    renderRawReportingSection();
     renderArchiveSection(scoped);
     renderMessage();
     renderFlowTable(view);
@@ -3527,6 +3594,37 @@ DW-810｜CNC線割機
             </tr>`).join("")}</tbody>
         </table>
       </div>`;
+  }
+
+  function renderRawReportingSection() {
+    const [headers, ...rows] = buildRawReportingSheet(state.rawRows);
+    const filters = state.rawReportingFilters;
+    const keyword = normalizeSearchText(filters.searchTerm);
+    const searchColumns = ["製令單號", "設備編號", "品名規格", "使用者"].map((label) => headers.indexOf(label));
+    const actionColumn = headers.indexOf("動作狀態");
+    // Normalize only for matching. Display and export retain the original field values.
+    const matchedRows = rows.filter((row) =>
+      (!keyword || searchColumns.some((index) => normalizeSearchText(row[index]).includes(keyword))) &&
+      (filters.actionStatus === "all" || normalizeStatus(row[actionColumn]) === filters.actionStatus)
+    );
+    const pageCount = Math.max(1, Math.ceil(matchedRows.length / RAW_REPORTING_PAGE_SIZE));
+    filters.page = Math.max(1, Math.min(filters.page, pageCount));
+    const start = (filters.page - 1) * RAW_REPORTING_PAGE_SIZE;
+    const pageRows = matchedRows.slice(start, start + RAW_REPORTING_PAGE_SIZE);
+    const rangeLabel = matchedRows.length ? `本頁顯示第 ${start + 1}–${start + pageRows.length} 筆` : "本頁顯示 0 筆";
+    document.getElementById("rawReportingResultNote").textContent = `原始紀錄共 ${rows.length} 筆；符合篩選 ${matchedRows.length} 筆；${rangeLabel}。`;
+    document.getElementById("exportRawReportingBtn").disabled = rows.length === 0;
+    document.getElementById("rawReportingPagination").hidden = pageCount <= 1;
+    document.getElementById("rawReportingPageLabel").textContent = `第 ${filters.page} / ${pageCount} 頁`;
+    document.getElementById("rawReportingPrevBtn").disabled = filters.page <= 1;
+    document.getElementById("rawReportingNextBtn").disabled = filters.page >= pageCount;
+    document.getElementById("rawReportingTable").innerHTML = pageRows.length ? `
+      <div class="table-shell raw-reporting-table-shell" tabindex="0" role="region" aria-label="原始報工紀錄表格，可捲動查看所有欄位">
+        <table aria-label="原始報工紀錄">
+          <thead><tr>${headers.map((header) => `<th scope="col">${escapeHtml(header)}</th>`).join("")}</tr></thead>
+          <tbody>${pageRows.map((row) => `<tr>${row.map((value) => `<td>${escapeHtml(value)}</td>`).join("")}</tr>`).join("")}</tbody>
+        </table>
+      </div>` : `<div class="empty-card">${rows.length ? "沒有符合搜尋與動作篩選的原始紀錄，請調整或清除篩選。" : "尚未匯入資料。請上傳 Excel / CSV 或貼上資料後查看原始報工紀錄。"}</div>`;
   }
 
   function renderArchiveSection(scoped) {
@@ -5188,6 +5286,22 @@ DW-810｜CNC線割機
       setMessage(`已匯出：${fileName}`, "info");
     } catch (error) {
       setMessage(error.message || "Excel 匯出失敗。", "error");
+    }
+  }
+
+  async function exportRawReportingReport() {
+    if (!state.rawRows.length) {
+      setMessage("目前沒有可匯出的原始報工紀錄。", "error");
+      return;
+    }
+    try {
+      const workbook = createExcelWorkbook();
+      appendSheet(workbook, "原始報工紀錄", buildRawReportingSheet(state.rawRows));
+      const fileName = "MES原始報工紀錄.xlsx";
+      await saveExcelWorkbook(workbook, fileName);
+      setMessage(`已匯出全部 ${state.rawRows.length} 筆原始報工紀錄：${fileName}`, "info");
+    } catch (error) {
+      setMessage(error.message || "原始報工紀錄匯出失敗。", "error");
     }
   }
 
