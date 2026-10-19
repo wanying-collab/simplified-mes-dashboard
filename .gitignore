@@ -1,0 +1,12 @@
+_site/
+test-output/
+node_modules/
+*.xlsx
+*.xls
+*.csv
+client_secret*.json
+credentials*.json
+*backup*.json
+*備份*.json
+.env
+.env.*

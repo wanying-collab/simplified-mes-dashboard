@@ -1,4 +1,6 @@
-Open this file in a browser:
-file:///C:/Users/amb/OneDrive/%E6%A1%8C%E9%9D%A2/MES-%E7%B0%A1%E5%8C%96%E7%89%88%E5%B7%A5%E6%99%82%E7%B3%BB%E7%B5%B1-%E5%9B%BA%E5%AE%9A%E7%89%88/index.html
+https://wanying-collab.github.io/simplified-mes-dashboard/
+
+Open index.html locally for manual Excel import.
+Google authorization requires the deployed site or an authorized localhost origin.
 
 This package opens the MES dashboard directly without a password gate.

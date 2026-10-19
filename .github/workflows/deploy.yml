@@ -23,14 +23,27 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
 
+      - name: Validate JavaScript and sync tests
+        run: |
+          node --check assets/simple-mes.js
+          node --check assets/google-sheets-sync.js
+          node --test tests/*.test.cjs
+
+      - name: Preserve live production and stage isolated preview
+        run: |
+          node scripts/build-pages-preview.cjs --verify-live
+          node --check _site/testing/google-sync/assets/simple-mes.js
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: .
+          path: _site
 
       - name: Deploy to GitHub Pages
         id: deployment

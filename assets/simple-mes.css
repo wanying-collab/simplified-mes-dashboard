@@ -691,6 +691,117 @@ textarea {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
+.setup-method-panel {
+  padding: 16px;
+  margin-bottom: 18px;
+  border: 1px solid #ddd6fe;
+  border-radius: 16px;
+  background: #f5f3ff;
+}
+
+.setup-method-panel summary,
+.setup-sample-details summary {
+  cursor: pointer;
+  color: #6d28d9;
+  font-weight: 700;
+}
+
+#historical-setup-analysis .summary-grid {
+  margin-top: 18px;
+}
+
+#historical-setup-analysis textarea.text-input {
+  min-height: 110px;
+}
+
+.setup-summary-table table {
+  min-width: 780px;
+}
+
+.setup-compact-row > td:nth-child(2) {
+  min-width: 240px;
+  max-width: 440px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.setup-compact-row > td:nth-child(3) {
+  font-weight: 700;
+}
+
+.setup-detail-row > td {
+  background: #faf8ff;
+}
+
+.setup-detail-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.setup-detail-fields dt {
+  font-weight: 700;
+}
+
+.setup-detail-fields dd {
+  margin: 4px 0 0;
+}
+
+.setup-sample-details {
+  min-width: 220px;
+}
+
+.setup-sample-details[open] {
+  width: min(76vw, 1100px);
+}
+
+.setup-sample-table {
+  max-height: 480px;
+}
+
+.setup-analysis-pagination[hidden] {
+  display: none;
+}
+
+#setupReviewPagination[hidden],
+#setupUnreportedPagination[hidden] {
+  display: none;
+}
+
+.setup-unreported-warning {
+  padding: 12px;
+  border-left: 4px solid #b45309;
+  border-radius: 8px;
+  background: #fff7ed;
+  color: #78350f;
+  white-space: normal;
+}
+
+#setupReviewEditor,
+#setupManualEditor {
+  scroll-margin-top: 110px;
+}
+
+#setupReviewContext,
+#setupManualContext,
+#setupManualMessage,
+#setupReviewsMessage {
+  overflow-wrap: anywhere;
+  line-height: 1.7;
+}
+
+#setupReviewEditor select {
+  width: 100%;
+}
+
+#historical-setup-analysis button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
 .primary-text {
   color: #1e1b4b;
   font-weight: 700;
@@ -1434,3 +1545,8 @@ textarea {
     width: auto;
   }
 }
+.google-sync-panel .action-row { flex-wrap: wrap; }
+.google-sync-panel button:disabled { opacity: .55; cursor: not-allowed; }
+.google-sync-error { color: #9f1239; background: #fff1f2; border-left: 3px solid #e11d48; padding: 12px; overflow-wrap: anywhere; }
+.google-sync-error[hidden] { display: none; }
+#googleSyncStatus { font-weight: 700; }

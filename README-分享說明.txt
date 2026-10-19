@@ -1,22 +1,28 @@
-MES 工時系統固定版
+MES 簡化版工時系統
 
-固定資料夾位置：
-C:\Users\amb\OneDrive\桌面\MES-簡化版工時系統-固定版
+正式網址：https://wanying-collab.github.io/simplified-mes-dashboard/
 
-開啟方式：
-1. 直接打開 index.html
-2. 或在瀏覽器輸入：
-file:///C:/Users/amb/OneDrive/%E6%A1%8C%E9%9D%A2/MES-%E7%B0%A1%E5%8C%96%E7%89%88%E5%B7%A5%E6%99%82%E7%B3%BB%E7%B5%B1-%E5%9B%BA%E5%AE%9A%E7%89%88/index.html
+正式版維持原有功能。本次新功能僅發布到測試網址：
+https://wanying-collab.github.io/simplified-mes-dashboard/testing/google-sync/
 
-登入密碼：
-MES2026!
+測試版可直接開啟，Google Sheets 加工資料需另按「Google 授權」。
+目前試算表仍為「知道連結的任何人可以檢視」，使用者已接受此既有風險。
+本功能以 OAuth 唯讀 API 讀取，但這不代表原始試算表已受到私人存取保護。
+若要真正限制原始資料存取，仍需另行將試算表改為受限分享；本程式不更改分享權限。
+授權只使用 Sheets 唯讀權限，權杖只存於本頁記憶體，不保存密碼。
+重新整理後可能需要再次授權，這是正常的安全設計。
+若同步失敗，舊資料保留並明確顯示錯誤，請勿當成最新資料。
 
-之後更新方式：
-1. 後續我幫你修改時，都以這個固定資料夾為主。
-2. 新版本會直接更新這個資料夾裡的 index.html、portal-X7K9M4Q2.html、assets。
-3. 你只要保留這一個資料夾，不需要再另外找其他版本。
+本機可開啟 index.html 使用 Excel 匯入；Google 授權需使用測試網址，
+或 OAuth 已登記的 localhost 網址。電腦時區請設為台北。
+人工覆核及工作日曆備份請自行匯出保管，不要提交到公開版本庫。
+本網站的部署檔案只包含網頁及必要程式，不包含原始報工資料或備份。
 
-注意：
-1. 不要刪除 assets 資料夾。
-2. 不要刪除 index.html。
-3. 不要刪除 portal-X7K9M4Q2.html。
+測試版與正式版為同網站的不同路徑，不是安全隔離的不同網域。
+測試版的 LocalStorage 使用獨立前綴，不自動讀寫正式版機台、日曆、人工覆核設定。
+如需既有設定，請自行在測試版匯入 JSON 備份；不要清除正式版設定。
+
+部署維護：scripts/build-pages-preview.cjs 固定正式版為 e462853041d13dc8a7b0338207228f1bb3be9cd9。
+部署前會比對目前正式網站內容，不一致就停止，防止覆蓋別人的更新。
+目前 main 的新程式只部署到 testing/google-sync，不會自動升級正式版。
+將來正式上線需另行確認並調整此保護設定，不可直接移除防護。
