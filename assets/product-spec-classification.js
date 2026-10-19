@@ -2,27 +2,43 @@
   "use strict";
   const SUFFIX = "-毛胚";
   const exactKey = (name) => `product-alias:${JSON.stringify(name)}`;
+  // Do not normalize dimensions, case, internal spaces or processing-stage suffixes.
+  const normalizeName = (name) => name.trim().replace(/，/g, ",").replace(/\s*,\s*/g, ",");
+  function setPairEnabled(exclusions, base, enabled) {
+    const next = new Set(exclusions);
+    if (enabled) {
+      for (const name of next) if (normalizeName(name) === normalizeName(base)) next.delete(name);
+    } else next.add(base);
+    return next;
+  }
   function buildCatalog(names, exclusions = new Set()) {
     const counts = new Map();
+    const variants = new Map();
     for (const name of names) {
-      if (typeof name === "string" && name.trim()) counts.set(name, (counts.get(name) || 0) + 1);
+      if (typeof name !== "string" || !name.trim()) continue;
+      const key = normalizeName(name);
+      counts.set(key, (counts.get(key) || 0) + 1);
+      if (!variants.has(key)) variants.set(key, new Set());
+      variants.get(key).add(name);
     }
+    const excludedKeys = new Set([...exclusions].map(normalizeName));
     const pairs = [];
     const uses = new Map();
     for (const canonical of counts.keys()) {
       if (!canonical.endsWith(SUFFIX)) continue;
       const base = canonical.slice(0, -SUFFIX.length);
       if (!base || !counts.has(base)) continue;
-      pairs.push({ base, canonical, baseCount: counts.get(base), canonicalCount: counts.get(canonical) });
+      pairs.push({ base, canonical, baseNames: [...variants.get(base)], canonicalNames: [...variants.get(canonical)],
+        baseCount: counts.get(base), canonicalCount: counts.get(canonical) });
       for (const name of [base, canonical]) uses.set(name, (uses.get(name) || 0) + 1);
     }
     const aliases = new Map();
     for (const pair of pairs) {
       pair.ambiguous = uses.get(pair.base) > 1 || uses.get(pair.canonical) > 1;
-      pair.excluded = exclusions.has(pair.base);
+      pair.excluded = excludedKeys.has(pair.base);
       pair.enabled = !pair.ambiguous && !pair.excluded;
-      // Exact keys prevent the existing relaxed punctuation normalization merging near-matches.
-      for (const name of [pair.base, pair.canonical]) {
+      // Disabled or ambiguous pairs retain raw names and exact grouping keys.
+      for (const name of [...pair.baseNames, ...pair.canonicalNames]) {
         const canonical = pair.enabled ? pair.canonical : name;
         aliases.set(name, { canonical, key: exactKey(canonical) });
       }
@@ -53,7 +69,7 @@
     }
     return new Set(data.excludedBases);
   }
-  const api = { buildCatalog, projectOrder, exportSettings, parseSettings };
+  const api = { buildCatalog, projectOrder, exportSettings, parseSettings, normalizeName, setPairEnabled };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else host.MESProductClassification = api;
 })(typeof window !== "undefined" ? window : globalThis);

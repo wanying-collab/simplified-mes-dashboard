@@ -50,3 +50,34 @@ Do not replace the production bundle with the preview application's bundle.
   the repository and are never included in the Pages artifact.
 
 These checks do not represent a real Google OAuth login test.
+
+## Comma/whitespace correction
+
+The classification-only integration is still based on the pinned release above.
+The new pure module is additionally approved by `MODULE_SHA256`; unknown module
+changes fail the build. Four explicit UI/settings integration replacements and
+versioned script URLs are the only changes to that production application.
+The live-site gate now accepts the complete `250a98f` release or the complete
+corrected release, including their matching module, never mixed versions.
+
+Matching trims outer whitespace, equates fullwidth/ASCII commas and ignores
+whitespace directly adjacent to commas. No other punctuation, dimensions,
+internal spaces, case or process-stage text is normalized. Unpaired names remain
+unchanged. Ambiguous multi-suffix matches remain disabled.
+
+Version 1 settings preserve their original strings during JSON round trips.
+Exclusions are matched using the same formatting rules; explicitly re-enabling
+a pair removes all equivalent old exclusion keys, not unrelated settings.
+
+Correction verification on the same private 3,705-event fixture:
+- Exact enabled pairs: 7 before, 17 after (10 additional pairs).
+- The 1000mm butterfly-valve bottom-cover group contains four distinct orders;
+  the 600mm and 1200mm groups retain one distinct order each, without suffixes.
+- Raw events, valid/invalid records, 509 orders, processing/waiting totals,
+  station sequences and archive results are unchanged from `250a98f`.
+- Preview setup analysis is identical: 685 candidates, 133 adopted, 552 excluded.
+- Legacy JSON import/export, reload, fresh-context restore, disable/re-enable
+  and preservation of unrelated LocalStorage settings pass browser checks.
+- Actual XLSX exports retain raw, anomaly, waiting, utilization and archive
+  statistics. Product grouping and display names are the intended differences.
+- All 52 automated tests pass, including eight new formatting regressions.

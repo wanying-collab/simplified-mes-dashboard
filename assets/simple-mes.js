@@ -590,7 +590,7 @@ DW-810｜CNC線割機
 
         <section class="panel section-block" id="product-classification">
           <h3>品名規格自動歸類</h3>
-          <p>只歸類原始文字完全相同、僅最後有無「-毛胚」的兩種名稱，優先使用帶「-毛胚」的名稱。只有無尾碼版本時維持原名。此設定只影響品名分析分組，不合併原始事件，不改變換模分析。</p>
+          <p>先統一全／半形逗號、逗號前後空白及品名前後空白，再歸類僅最後有無「-毛胚」的兩種名稱，優先使用帶「-毛胚」的名稱。不同尺寸、零件、閥類及加工階段不合併；只有無尾碼版本時維持原名。此設定只影響品名分析分組，不合併原始事件，不改變換模分析。</p>
           <details class="setup-method-panel">
             <summary>查看歸類對照與人工排除設定</summary>
             <p>若產品類型或加工階段不同，請取消勾選「自動歸類」。設定會保留到下次匯入；換電腦前請匯出備份。筆數為原始報工事件數，包含無效紀錄。</p>
@@ -676,9 +676,8 @@ DW-810｜CNC線割機
     document.getElementById("productClassificationTable").addEventListener("change", (event) => {
       const input = event.target.closest("input[data-product-base]");
       if (!input) return;
-      const excluded = new Set(state.productClassificationExclusions);
-      if (input.checked) excluded.delete(input.dataset.productBase);
-      else excluded.add(input.dataset.productBase);
+      const excluded = window.MESProductClassification.setPairEnabled(
+        state.productClassificationExclusions, input.dataset.productBase, input.checked);
       saveProductClassification(excluded);
     });
     document.getElementById("exportProductClassificationBtn").addEventListener("click", () => {
@@ -1466,9 +1465,9 @@ DW-810｜CNC線割機
 
   function renderProductClassification() {
     const pairs = state.productClassification.pairs;
-    document.getElementById("productClassificationSummary").textContent = `找到 ${pairs.length} 組精確尾碼配對，${pairs.filter((pair) => pair.enabled).length} 組自動歸類；已保存 ${state.productClassificationExclusions.size} 組人工排除設定。`;
+    document.getElementById("productClassificationSummary").textContent = `找到 ${pairs.length} 組格式統一後尾碼配對，${pairs.filter((pair) => pair.enabled).length} 組自動歸類；已保存 ${state.productClassificationExclusions.size} 組人工排除設定。`;
     document.getElementById("productClassificationTable").innerHTML = pairs.length
-      ? `<table><thead><tr><th>自動歸類</th><th>原始品名（無尾碼）</th><th>統一品名</th><th>原始事件筆數（無尾碼／毛胚）</th><th>狀態</th></tr></thead><tbody>${pairs.map((pair) => `<tr><td><input type="checkbox" aria-label="自動歸類 ${escapeHtml(pair.base)}" data-product-base="${escapeHtml(pair.base)}" ${pair.enabled ? "checked" : ""} ${pair.ambiguous ? "disabled" : ""} /></td><td>${escapeHtml(pair.base)}</td><td>${escapeHtml(pair.canonical)}</td><td>${pair.baseCount} / ${pair.canonicalCount}</td><td>${pair.ambiguous ? "多重尾碼配對，待確認，不自動歸類" : pair.excluded ? "人工排除，保留各自名稱" : "自動歸類"}</td></tr>`).join("")}</tbody></table>`
+      ? `<table><thead><tr><th>自動歸類</th><th>原始品名（無尾碼）</th><th>統一品名</th><th>原始事件筆數（無尾碼／毛胚）</th><th>狀態</th></tr></thead><tbody>${pairs.map((pair) => `<tr><td><input type="checkbox" aria-label="自動歸類 ${escapeHtml(pair.base)}" data-product-base="${escapeHtml(pair.base)}" ${pair.enabled ? "checked" : ""} ${pair.ambiguous ? "disabled" : ""} /></td><td>${(pair.baseNames || [pair.base]).map(escapeHtml).join("<br>")}</td><td>${escapeHtml(pair.canonical)}</td><td>${pair.baseCount} / ${pair.canonicalCount}</td><td>${pair.ambiguous ? "多重尾碼配對，待確認，不自動歸類" : pair.excluded ? "人工排除，保留各自名稱" : "自動歸類"}</td></tr>`).join("")}</tbody></table>`
       : "目前沒有同時出現有／無 -毛胚的精確名稱配對。";
   }
 

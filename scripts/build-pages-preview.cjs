@@ -24,6 +24,7 @@ const STORAGE_KEYS = [
 const sha256 = (bytes) => crypto.createHash('sha256').update(bytes).digest('hex');
 const baseline = (name) => execFileSync('git', ['show', `${PRODUCTION_REF}:${name}`], { cwd: ROOT, maxBuffer: 16 * 1024 * 1024 });
 const productionRelease = () => promotion.createProductionRelease(ROOT, baseline, PUBLIC_FILES);
+const previousProductionRelease = () => promotion.createProductionRelease(ROOT, baseline, PUBLIC_FILES, false);
 
 function previewJavaScript(source) {
   let result = source;
@@ -48,27 +49,23 @@ function previewHtml(source) {
 
 async function verifyLiveProduction(fetchImpl = fetch) {
   const approved = productionRelease();
-  let matchesBaseline = true;
+  const previous = previousProductionRelease();
+  let matchesPrevious = true;
   let matchesRelease = true;
-  for (const name of PUBLIC_FILES.filter((name) => name !== '.nojekyll')) {
+  for (const name of [...approved.keys()].filter((name) => name !== '.nojekyll')) {
     const response = await fetchImpl(`${SITE_URL}${name}?production-check=${Date.now()}`, { signal: AbortSignal.timeout(30000), cache: 'no-store' });
     if (!response.ok) throw new Error(`Cannot verify production ${name}: HTTP ${response.status}`);
     const live = Buffer.from(await response.arrayBuffer());
-    matchesBaseline = matchesBaseline && sha256(live) === sha256(baseline(name));
+    matchesPrevious = matchesPrevious && sha256(live) === sha256(previous.get(name));
     matchesRelease = matchesRelease && sha256(live) === sha256(approved.get(name));
-    if (!matchesBaseline && !matchesRelease) throw new Error(`Production changed; refusing to overwrite: ${name}`);
+    if (!matchesPrevious && !matchesRelease) throw new Error(`Production changed; refusing to overwrite: ${name}`);
   }
-  // Accept a complete old release or a complete approved release, never a mixture.
-  if (matchesRelease) {
-    const response = await fetchImpl(`${SITE_URL}${promotion.MODULE_FILE}?production-check=${Date.now()}`, { signal: AbortSignal.timeout(30000), cache: 'no-store' });
-    if (!response.ok) throw new Error(`Cannot verify production module: HTTP ${response.status}`);
-    if (sha256(Buffer.from(await response.arrayBuffer())) !== sha256(approved.get(promotion.MODULE_FILE))) throw new Error('Production module changed; refusing to overwrite');
-  }
+  // Both the application and module must belong to one complete approved release.
 }
 
 function build(output = path.join(ROOT, '_site')) {
   if (fs.existsSync(output)) throw new Error('Output already exists; use a fresh directory to prevent publishing stray files');
-  const manifest = { productionRef: PRODUCTION_REF, productionClassificationRef: promotion.CLASSIFICATION_REF, productionPromotion: 'classification-only', previewRef: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).trim(), production: {}, preview: {} };
+  const manifest = { productionRef: PRODUCTION_REF, productionClassificationRef: promotion.CLASSIFICATION_REF, classificationFormatRevision: promotion.FORMAT_REVISION, classificationModuleSha256: promotion.MODULE_SHA256, productionPromotion: 'classification-only', previewRef: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).trim(), production: {}, preview: {} };
   const write = (name, bytes) => {
     const target = path.join(output, name);
     fs.mkdirSync(path.dirname(target), { recursive: true });
@@ -99,4 +96,4 @@ if (require.main === module) {
     }
   })().catch((error) => { console.error(error.message); process.exitCode = 1; });
 }
-module.exports = { ROOT, PRODUCTION_REF, SITE_URL, PREVIEW_PATH, PUBLIC_FILES, PREVIEW_FILES, STORAGE_KEYS, sha256, baseline, productionRelease, previewJavaScript, previewHtml, verifyLiveProduction, build };
+module.exports = { ROOT, PRODUCTION_REF, SITE_URL, PREVIEW_PATH, PUBLIC_FILES, PREVIEW_FILES, STORAGE_KEYS, sha256, baseline, productionRelease, previousProductionRelease, previewJavaScript, previewHtml, verifyLiveProduction, build };

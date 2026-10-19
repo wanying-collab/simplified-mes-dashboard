@@ -25,6 +25,8 @@ test('production changes only the two entry scripts, MES classification wiring a
   for (const name of ['portal-x7k9m4q2/index.html', 'portal-X7K9M4Q2.html']) {
     const html = release.get(name).toString('utf8');
     assert.ok(html.indexOf('product-spec-classification.js') < html.indexOf('simple-mes.js'));
+    assert.ok(html.includes(`product-spec-classification.js?v=${promotion.FORMAT_REVISION}`));
+    assert.ok(html.includes(`simple-mes.js?v=${promotion.FORMAT_REVISION}`));
   }
   assert.ok(afterSource.includes('id="product-classification"'));
   assert.ok(afterSource.includes('mes_machine_master_v1'));
@@ -66,11 +68,17 @@ test('production classification preserves raw events, work orders, times, anomal
   assert.equal(after.buildProductSpecFlowAnalysis(after.buildWorkOrders(after.state.validRecords), '').length, 3);
 });
 
-test('preview application, Google synchronization, setup analysis and review source remain at the approved test commit', () => {
+test('preview changes only classification; Google synchronization, setup analysis and reviews are unchanged', () => {
   for (const name of pages.PREVIEW_FILES) {
+    if (name === promotion.MODULE_FILE) {
+      assert.equal(release.get(name).toString('utf8'), fs.readFileSync(path.join(pages.ROOT, name), 'utf8').replaceAll('\r\n', '\n'));
+      continue;
+    }
     const pinned = execFileSync('git', ['show', `${promotion.CLASSIFICATION_REF}:${name}`], { cwd: pages.ROOT, maxBuffer: 2000000 }).toString('utf8').replaceAll('\r\n', '\n');
     const current = fs.readFileSync(path.join(pages.ROOT, name), 'utf8').replaceAll('\r\n', '\n');
-    assert.equal(current, pinned, name);
+    const expected = name === 'assets/simple-mes.js' ? promotion.upgradeClassificationIntegration(pinned)
+      : promotion.CHANGED_FILES.includes(name) && name.endsWith('.html') ? promotion.versionClassificationEntry(pinned) : pinned;
+    assert.equal(current, expected, name);
   }
 });
 
@@ -80,12 +88,15 @@ const responseFor = (choose) => async (url) => {
   return { ok: Boolean(bytes), status: bytes ? 200 : 404, arrayBuffer: async () => bytes };
 };
 test('deployment accepts the complete old release and the complete approved classification release', async () => {
-  await pages.verifyLiveProduction(responseFor((name) => pages.baseline(name)));
+  const previous = pages.previousProductionRelease();
+  await pages.verifyLiveProduction(responseFor((name) => previous.get(name)));
   await pages.verifyLiveProduction(responseFor((name) => release.get(name)));
 });
 
 test('deployment refuses mixed releases or a missing/corrupt classification module', async () => {
-  await assert.rejects(pages.verifyLiveProduction(responseFor((name) => name === 'assets/simple-mes.js' ? pages.baseline(name) : release.get(name))), /refusing to overwrite/);
+  const previous = pages.previousProductionRelease();
+  await assert.rejects(pages.verifyLiveProduction(responseFor((name) => name === 'assets/simple-mes.js' ? previous.get(name) : release.get(name))), /refusing to overwrite/);
+  await assert.rejects(pages.verifyLiveProduction(responseFor((name) => name === promotion.MODULE_FILE ? previous.get(name) : release.get(name))), /refusing to overwrite/);
   await assert.rejects(pages.verifyLiveProduction(responseFor((name) => name === promotion.MODULE_FILE ? null : release.get(name))), /HTTP 404/);
   await assert.rejects(pages.verifyLiveProduction(responseFor((name) => name === promotion.MODULE_FILE ? Buffer.from('unexpected') : release.get(name))), /refusing to overwrite/);
 });

@@ -1,9 +1,14 @@
 const { execFileSync } = require('node:child_process');
+const fs = require('node:fs');
+const path = require('node:path');
+const crypto = require('node:crypto');
 
 // Promote only the reviewed classification delta, never the preview application.
 const CLASSIFICATION_REF = '53b7a57d9da0d1dc22fb477dbafde2fcef9d9004';
 const BEFORE_CLASSIFICATION_REF = '8e9a6b86824a0d33f16362252060a9e1851789f3';
 const MODULE_FILE = 'assets/product-spec-classification.js';
+const FORMAT_REVISION = 'comma-whitespace-v1';
+const MODULE_SHA256 = 'afd88fefbc7ceeae7b10ac2a3ae7f1fe95ab3bd9404c2ea425e6c224a862d903';
 const CHANGED_FILES = ['assets/simple-mes.js', 'portal-x7k9m4q2/index.html', 'portal-X7K9M4Q2.html', MODULE_FILE];
 const FUNCTIONS = [
   'buildWorkOrders', 'buildStandards', 'buildScheduleRows',
@@ -33,7 +38,23 @@ function functionText(source, name) {
   return source.slice(index, last + 5);
 }
 
-function createProductionRelease(root, baseline, files) {
+function upgradeClassificationIntegration(source) {
+  source = replaceOnce(source,
+    '只歸類原始文字完全相同、僅最後有無「-毛胚」的兩種名稱，優先使用帶「-毛胚」的名稱。只有無尾碼版本時維持原名。',
+    '先統一全／半形逗號、逗號前後空白及品名前後空白，再歸類僅最後有無「-毛胚」的兩種名稱，優先使用帶「-毛胚」的名稱。不同尺寸、零件、閥類及加工階段不合併；只有無尾碼版本時維持原名。');
+  source = replaceOnce(source,
+    '      const excluded = new Set(state.productClassificationExclusions);\n      if (input.checked) excluded.delete(input.dataset.productBase);\n      else excluded.add(input.dataset.productBase);',
+    '      const excluded = window.MESProductClassification.setPairEnabled(\n        state.productClassificationExclusions, input.dataset.productBase, input.checked);');
+  source = replaceOnce(source, '組精確尾碼配對', '組格式統一後尾碼配對');
+  return replaceOnce(source, '${escapeHtml(pair.base)}</td>', '${(pair.baseNames || [pair.base]).map(escapeHtml).join("<br>")}</td>');
+}
+
+function versionClassificationEntry(html) {
+  html = replaceOnce(html, 'assets/product-spec-classification.js"', `assets/product-spec-classification.js?v=${FORMAT_REVISION}"`);
+  return replaceOnce(html, 'assets/simple-mes.js"', `assets/simple-mes.js?v=${FORMAT_REVISION}"`);
+}
+
+function createProductionRelease(root, baseline, files, withFormatting = true) {
   const read = (ref, name) => execFileSync('git', ['show', `${ref}:${name}`], { cwd: root, maxBuffer: 16 * 1024 * 1024 });
   const approved = read(CLASSIFICATION_REF, 'assets/simple-mes.js').toString('utf8');
   const previous = read(BEFORE_CLASSIFICATION_REF, 'assets/simple-mes.js').toString('utf8');
@@ -64,6 +85,16 @@ function createProductionRelease(root, baseline, files) {
     const script = `    <script defer src="${prefix}assets/simple-mes.js"></script>`;
     result.set(name, Buffer.from(replaceOnce(html, script, `    <script defer src="${prefix}${MODULE_FILE}"></script>\n${script}`)));
   }
+  if (withFormatting) {
+    // Only this reviewed pure module and four explicit integration edits are promoted.
+    const moduleBytes = Buffer.from(fs.readFileSync(path.join(root, MODULE_FILE), 'utf8').replaceAll('\r\n', '\n'));
+    if (crypto.createHash('sha256').update(moduleBytes).digest('hex') !== MODULE_SHA256) throw new Error('Unapproved production classification module');
+    result.set(MODULE_FILE, moduleBytes);
+    result.set('assets/simple-mes.js', Buffer.from(upgradeClassificationIntegration(source)));
+    for (const name of CHANGED_FILES.filter((name) => name.endsWith('.html'))) {
+      result.set(name, Buffer.from(versionClassificationEntry(result.get(name).toString('utf8'))));
+    }
+  }
   for (const [name, bytes] of result) {
     if (name.startsWith('assets/index-') || name.endsWith('.css')) continue;
     if (/MESGoogleSheets|initializeGoogleSheetsSync|google-sheets-sync\.js|accounts\.google\.com\/gsi|sheets\.googleapis\.com|googleAuthorizeBtn/.test(bytes.toString('utf8'))) {
@@ -73,4 +104,4 @@ function createProductionRelease(root, baseline, files) {
   return result;
 }
 
-module.exports = { CLASSIFICATION_REF, BEFORE_CLASSIFICATION_REF, MODULE_FILE, CHANGED_FILES, FUNCTIONS, functionText, createProductionRelease };
+module.exports = { CLASSIFICATION_REF, BEFORE_CLASSIFICATION_REF, MODULE_FILE, FORMAT_REVISION, MODULE_SHA256, CHANGED_FILES, FUNCTIONS, functionText, upgradeClassificationIntegration, versionClassificationEntry, createProductionRelease };
