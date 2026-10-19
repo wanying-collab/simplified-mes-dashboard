@@ -2,7 +2,8 @@ MES 簡化版工時系統
 
 正式網址：https://wanying-collab.github.io/simplified-mes-dashboard/
 
-正式版維持原有功能。本次新功能僅發布到測試網址：
+正式版保留原有功能，另單獨加入「品名規格自動歸類」。
+Google Sheets 自動同步及尚未正式發布的換模分析更新，仍只保留在測試網址：
 https://wanying-collab.github.io/simplified-mes-dashboard/testing/google-sync/
 
 測試版可直接開啟，Google Sheets 加工資料需另按「Google 授權」。
@@ -22,14 +23,17 @@ https://wanying-collab.github.io/simplified-mes-dashboard/testing/google-sync/
 測試版的 LocalStorage 使用獨立前綴，不自動讀寫正式版機台、日曆、人工覆核設定。
 如需既有設定，請自行在測試版匯入 JSON 備份；不要清除正式版設定。
 
-部署維護：scripts/build-pages-preview.cjs 固定正式版為 e462853041d13dc8a7b0338207228f1bb3be9cd9。
-部署前會比對目前正式網站內容，不一致就停止，防止覆蓋別人的更新。
-目前 main 的新程式只部署到 testing/google-sync，不會自動升級正式版。
-將來正式上線需另行確認並調整此保護設定，不可直接移除防護。
+部署維護：正式版以 e462853041d13dc8a7b0338207228f1bb3be9cd9 為底，
+僅由 scripts/production-classification.cjs 加入 53b7a57 的品名歸類修改。
+部署前確認線上內容完整符合原正式版或本次核准版本；未知或混合版本一律停止。
+main 的其他程式仍只部署到 testing/google-sync，不會自動升級正式版。
+正式版不載入 Google 同步模組、Google OAuth 或 Sheets API，不清除原有人工設定。
+後續正式發布需明確列出修改範圍，不可移除防護或直接複製整份測試版程式。
 
-品名規格自動歸類（測試版）：
+品名規格自動歸類（正式版與測試版）：
 只有原始文字完全相同、最後有／無「-毛胚」且兩種名稱同時存在時，才統一使用「-毛胚」名稱。
 分析目錄的「品名規格自動歸類」可展開對照表；不同加工階段請取消勾選自動歸類。
 人工排除會保存於瀏覽器，也可匯出／匯入獨立 JSON 備份；匯入會合併保留已排除項目。
+正式版與測試版的品名排除設定分開保存；不會自動覆蓋，需自行匯入欲沿用的 JSON 備份。
 歸類只改分析分組與品名顯示，原始報工紀錄、無效紀錄、製令單號及換模分析不變。
 相同品名歷史分析的樣本會因歸類集中，但加工工時與平均值公式本身不變。

@@ -2,6 +2,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
+const promotion = require('./production-classification.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
 const PRODUCTION_REF = 'e462853041d13dc8a7b0338207228f1bb3be9cd9';
@@ -22,6 +23,7 @@ const STORAGE_KEYS = [
 ];
 const sha256 = (bytes) => crypto.createHash('sha256').update(bytes).digest('hex');
 const baseline = (name) => execFileSync('git', ['show', `${PRODUCTION_REF}:${name}`], { cwd: ROOT, maxBuffer: 16 * 1024 * 1024 });
+const productionRelease = () => promotion.createProductionRelease(ROOT, baseline, PUBLIC_FILES);
 
 function previewJavaScript(source) {
   let result = source;
@@ -45,25 +47,35 @@ function previewHtml(source) {
 }
 
 async function verifyLiveProduction(fetchImpl = fetch) {
+  const approved = productionRelease();
+  let matchesBaseline = true;
+  let matchesRelease = true;
   for (const name of PUBLIC_FILES.filter((name) => name !== '.nojekyll')) {
     const response = await fetchImpl(`${SITE_URL}${name}?production-check=${Date.now()}`, { signal: AbortSignal.timeout(30000), cache: 'no-store' });
     if (!response.ok) throw new Error(`Cannot verify production ${name}: HTTP ${response.status}`);
     const live = Buffer.from(await response.arrayBuffer());
-    if (sha256(live) !== sha256(baseline(name))) throw new Error(`Production changed; refusing to overwrite: ${name}`);
+    matchesBaseline = matchesBaseline && sha256(live) === sha256(baseline(name));
+    matchesRelease = matchesRelease && sha256(live) === sha256(approved.get(name));
+    if (!matchesBaseline && !matchesRelease) throw new Error(`Production changed; refusing to overwrite: ${name}`);
+  }
+  // Accept a complete old release or a complete approved release, never a mixture.
+  if (matchesRelease) {
+    const response = await fetchImpl(`${SITE_URL}${promotion.MODULE_FILE}?production-check=${Date.now()}`, { signal: AbortSignal.timeout(30000), cache: 'no-store' });
+    if (!response.ok) throw new Error(`Cannot verify production module: HTTP ${response.status}`);
+    if (sha256(Buffer.from(await response.arrayBuffer())) !== sha256(approved.get(promotion.MODULE_FILE))) throw new Error('Production module changed; refusing to overwrite');
   }
 }
 
 function build(output = path.join(ROOT, '_site')) {
   if (fs.existsSync(output)) throw new Error('Output already exists; use a fresh directory to prevent publishing stray files');
-  const manifest = { productionRef: PRODUCTION_REF, previewRef: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).trim(), production: {}, preview: {} };
+  const manifest = { productionRef: PRODUCTION_REF, productionClassificationRef: promotion.CLASSIFICATION_REF, productionPromotion: 'classification-only', previewRef: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).trim(), production: {}, preview: {} };
   const write = (name, bytes) => {
     const target = path.join(output, name);
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.writeFileSync(target, bytes);
   };
-  // Production bytes are read from the known live commit, never the working tree.
-  for (const name of PUBLIC_FILES) {
-    const bytes = baseline(name);
+  // Production is the pinned baseline plus the reviewed classification-only delta.
+  for (const [name, bytes] of productionRelease()) {
     write(name, bytes);
     manifest.production[name] = sha256(bytes);
   }
@@ -83,8 +95,8 @@ if (require.main === module) {
     if (process.argv.includes('--verify-live')) await verifyLiveProduction();
     if (!process.argv.includes('--verify-only')) {
       const manifest = build();
-      console.log(`Production pinned to ${manifest.productionRef}; preview: ${SITE_URL}${PREVIEW_PATH}/`);
+      console.log(`Production base ${manifest.productionRef} + classification ${manifest.productionClassificationRef}; preview: ${SITE_URL}${PREVIEW_PATH}/`);
     }
   })().catch((error) => { console.error(error.message); process.exitCode = 1; });
 }
-module.exports = { ROOT, PRODUCTION_REF, SITE_URL, PREVIEW_PATH, PUBLIC_FILES, PREVIEW_FILES, STORAGE_KEYS, sha256, baseline, previewJavaScript, previewHtml, verifyLiveProduction, build };
+module.exports = { ROOT, PRODUCTION_REF, SITE_URL, PREVIEW_PATH, PUBLIC_FILES, PREVIEW_FILES, STORAGE_KEYS, sha256, baseline, productionRelease, previewJavaScript, previewHtml, verifyLiveProduction, build };

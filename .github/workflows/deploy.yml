@@ -36,9 +36,11 @@ jobs:
           node --check assets/product-spec-classification.js
           node --test tests/*.test.cjs
 
-      - name: Preserve live production and stage isolated preview
+      - name: Verify protected production and stage classification-only release
         run: |
           node scripts/build-pages-preview.cjs --verify-live
+          node --check _site/assets/simple-mes.js
+          node --check _site/assets/product-spec-classification.js
           node --check _site/testing/google-sync/assets/simple-mes.js
 
       - name: Upload artifact

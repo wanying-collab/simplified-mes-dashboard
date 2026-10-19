@@ -14,12 +14,12 @@ test('preview changes only registered storage key literals, not MES analysis', (
   assert.throws(() => preview.previewJavaScript(source.replace('mes_machine_master_v1', 'renamed_key')));
 });
 
-test('public artifact preserves production exactly and excludes backups/source documents', () => {
+test('public artifact promotes classification only and excludes backups/source documents', () => {
   const output = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'mes-preview-')), 'site');
   const manifest = preview.build(output);
-  for (const name of preview.PUBLIC_FILES) assert.deepEqual(fs.readFileSync(path.join(output, name)), preview.baseline(name));
+  for (const [name, bytes] of preview.productionRelease()) assert.deepEqual(fs.readFileSync(path.join(output, name)), bytes);
   const all = fs.readdirSync(output, { recursive: true }).filter((name) => fs.statSync(path.join(output, name)).isFile());
-  const expected = [...preview.PUBLIC_FILES, ...preview.PREVIEW_FILES.map((name) => `${preview.PREVIEW_PATH}/${name}`), `${preview.PREVIEW_PATH}/deployment-manifest.json`];
+  const expected = [...preview.productionRelease().keys(), ...preview.PREVIEW_FILES.map((name) => `${preview.PREVIEW_PATH}/${name}`), `${preview.PREVIEW_PATH}/deployment-manifest.json`];
   assert.deepEqual(all.map((name) => name.split(path.sep).join('/')).sort(), expected.sort());
   assert.equal(manifest.productionRef, preview.PRODUCTION_REF);
   const html = fs.readFileSync(path.join(output, preview.PREVIEW_PATH, 'portal-x7k9m4q2/index.html'), 'utf8');
