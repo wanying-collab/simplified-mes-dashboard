@@ -14,10 +14,11 @@ const PUBLIC_FILES = [
   'assets/index-BQzHMGEN.js', 'assets/index-fgnBnJna.css',
 ];
 const PREVIEW_FILES = PUBLIC_FILES.filter((name) => !name.startsWith('assets/index-'))
-  .concat('assets/google-sheets-sync.js');
+  .concat('assets/google-sheets-sync.js', 'assets/product-spec-classification.js');
 const STORAGE_KEYS = [
   'mes_machine_master_v1', 'mes_setup_calendar_v1', 'mes_setup_calendar_backup_v1',
   'mes_setup_reviews_v1', 'mes_setup_reviews_backup_v1',
+  'mes_product_classification_v1',
 ];
 const sha256 = (bytes) => crypto.createHash('sha256').update(bytes).digest('hex');
 const baseline = (name) => execFileSync('git', ['show', `${PRODUCTION_REF}:${name}`], { cwd: ROOT, maxBuffer: 16 * 1024 * 1024 });

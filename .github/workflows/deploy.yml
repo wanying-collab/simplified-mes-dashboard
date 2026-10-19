@@ -33,6 +33,7 @@ jobs:
         run: |
           node --check assets/simple-mes.js
           node --check assets/google-sheets-sync.js
+          node --check assets/product-spec-classification.js
           node --test tests/*.test.cjs
 
       - name: Preserve live production and stage isolated preview

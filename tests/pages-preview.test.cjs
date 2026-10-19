@@ -5,11 +5,11 @@ const path = require('node:path');
 const os = require('node:os');
 const preview = require('../scripts/build-pages-preview.cjs');
 
-test('preview changes only the five storage key literals, not MES analysis', () => {
+test('preview changes only registered storage key literals, not MES analysis', () => {
   const source = fs.readFileSync(path.join(preview.ROOT, 'assets/simple-mes.js'), 'utf8');
   const result = preview.previewJavaScript(source);
   assert.equal(result.replaceAll('mes_test_google_sync__', ''), source);
-  assert.equal((result.match(/mes_test_google_sync__/g) || []).length, 5);
+  assert.equal((result.match(/mes_test_google_sync__/g) || []).length, preview.STORAGE_KEYS.length);
   for (const key of preview.STORAGE_KEYS) assert.ok(!result.includes(JSON.stringify(key)));
   assert.throws(() => preview.previewJavaScript(source.replace('mes_machine_master_v1', 'renamed_key')));
 });

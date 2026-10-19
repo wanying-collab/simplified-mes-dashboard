@@ -17,6 +17,7 @@
   const SETUP_CALENDAR_BACKUP_KEY = "mes_setup_calendar_backup_v1";
   const SETUP_REVIEW_STORAGE_KEY = "mes_setup_reviews_v1";
   const SETUP_REVIEW_BACKUP_KEY = "mes_setup_reviews_backup_v1";
+  const PRODUCT_CLASSIFICATION_STORAGE_KEY = "mes_product_classification_v1";
   const SETUP_SHORT_REASON = "疑似僅為報工切換時間（小於 2 分鐘）";
   const SETUP_REVIEW_STATUSES = { pending: "待確認", confirmed_setup: "現場確認換模", confirmed_no_setup: "現場確認無需換模", possibly_in_processing: "可能已包含加工工時" };
   const SETUP_UNREPORTED_STATUSES = { unknown: "尚未確認", confirmed_other_order: "確認中間有其他未報工製令單", confirmed_no_other_order: "確認沒有其他未報工製令單", unable_to_confirm: "無法確認" };
@@ -85,6 +86,8 @@ DW-810｜CNC線割機
   const state = {
     sourceLabel: "",
     rawRows: [],
+    productClassification: { aliases: new Map(), pairs: [] },
+    productClassificationExclusions: new Set(),
     rawReportingFilters: { searchTerm: "", actionStatus: "all", page: 1 },
     setupCalendar: { holidays: [], machineDaysOff: [], confirmed: false, workIntervals: [[480, 1020]], breakIntervals: [[600, 615], [720, 780], [900, 915]], attendance: [], operatorOverrides: [], machineOverrides: [], officialYears: {} },
     setupAnalysisCache: null,
@@ -170,6 +173,7 @@ DW-810｜CNC線割機
   bindEvents();
   restoreSetupCalendar();
   restoreSetupReviews();
+  restoreProductClassification();
   renderAll();
 
   initializeGoogleSheetsSync();
@@ -584,6 +588,19 @@ DW-810｜CNC線割機
           <div id="machineUsageSection"></div>
         </section>
 
+        <section class="panel section-block" id="product-classification">
+          <h3>品名規格自動歸類</h3>
+          <p>只歸類原始文字完全相同、僅最後有無「-毛胚」的兩種名稱，優先使用帶「-毛胚」的名稱。只有無尾碼版本時維持原名。此設定只影響品名分析分組，不合併原始事件，不改變換模分析。</p>
+          <details class="setup-method-panel">
+            <summary>查看歸類對照與人工排除設定</summary>
+            <p>若產品類型或加工階段不同，請取消勾選「自動歸類」。設定會保留到下次匯入；換電腦前請匯出備份。筆數為原始報工事件數，包含無效紀錄。</p>
+            <div id="productClassificationTable" class="table-shell"></div>
+            <div class="action-row"><button id="exportProductClassificationBtn" class="btn-secondary" type="button">匯出排除設定 JSON</button><label for="importProductClassificationFile">匯入排除設定（合併保留）</label><input id="importProductClassificationFile" type="file" accept=".json,application/json" /></div>
+          </details>
+          <p id="productClassificationSummary" class="panel-note"></p>
+          <p id="productClassificationMessage" role="status" aria-live="polite"></p>
+        </section>
+
         <section class="panel section-block" id="comparison-analysis">
           <div class="section-title">
             <div>
@@ -656,6 +673,30 @@ DW-810｜CNC線割機
   }
 
   function bindEvents() {
+    document.getElementById("productClassificationTable").addEventListener("change", (event) => {
+      const input = event.target.closest("input[data-product-base]");
+      if (!input) return;
+      const excluded = new Set(state.productClassificationExclusions);
+      if (input.checked) excluded.delete(input.dataset.productBase);
+      else excluded.add(input.dataset.productBase);
+      saveProductClassification(excluded);
+    });
+    document.getElementById("exportProductClassificationBtn").addEventListener("click", () => {
+      const data = window.MESProductClassification.exportSettings(state.productClassificationExclusions);
+      const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json;charset=utf-8" }));
+      const link = document.createElement("a");
+      link.href = url; link.download = "MES品名歸類排除設定.json"; link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    });
+    document.getElementById("importProductClassificationFile").addEventListener("change", async (event) => {
+      const file = event.target.files[0];
+      if (!file) return;
+      try {
+        const imported = window.MESProductClassification.parseSettings(await file.text());
+        saveProductClassification(new Set([...state.productClassificationExclusions, ...imported]));
+      } catch (error) { document.getElementById("productClassificationMessage").textContent = `匯入失敗：${error.message}`; }
+      finally { event.target.value = ""; }
+    });
     const excelInput = document.getElementById("excelInput");
     const analyzeTextBtn = document.getElementById("analyzeTextBtn");
     const clearTextBtn = document.getElementById("clearTextBtn");
@@ -1313,6 +1354,7 @@ DW-810｜CNC線割機
 
     state.sourceLabel = sourceLabel;
     state.rawRows = rows;
+    state.productClassification = window.MESProductClassification.buildCatalog(prepared.map(productClassificationName), state.productClassificationExclusions);
     state.latestOperatorRecords = buildLatestOperatorRecords(prepared);
     state.validRecords = validRecords;
     state.invalidRecords = invalidRecords;
@@ -1381,6 +1423,53 @@ DW-810｜CNC線割機
       archivedOrdersByYear,
       archiveSummary,
     };
+  }
+
+  function productClassificationName(record) {
+    const field = Object.entries(record.originalRow || {}).find(([header]) => findMappedField(normalizeHeader(header)) === "productSpec");
+    return field ? String(field[1] ?? "") : record.productSpec || "";
+  }
+
+  function applyProductClassification(order) {
+    return window.MESProductClassification.projectOrder(order, state.productClassification,
+      (order.rawRecords || []).map(productClassificationName), normalizeProductSpec);
+  }
+
+  function getProductGroupKey(order) {
+    return order.productGroupKey || order.normalizedProductSpec;
+  }
+
+  function restoreProductClassification() {
+    try {
+      const saved = localStorage.getItem(PRODUCT_CLASSIFICATION_STORAGE_KEY);
+      if (saved) state.productClassificationExclusions = window.MESProductClassification.parseSettings(saved);
+    } catch (_) {
+      document.getElementById("productClassificationMessage").textContent = "排除設定未能讀取，請先匯入 JSON 備份確認歸類；原儲存資料未覆寫。";
+    }
+  }
+
+  function saveProductClassification(excluded) {
+    const data = window.MESProductClassification.exportSettings(excluded);
+    let saved = true;
+    try { localStorage.setItem(PRODUCT_CLASSIFICATION_STORAGE_KEY, JSON.stringify(data)); }
+    catch (_) { saved = false; }
+    state.productClassificationExclusions = excluded;
+    state.productClassification = window.MESProductClassification.buildCatalog(
+      [...state.validRecords, ...state.invalidRecords].map(productClassificationName), excluded);
+    state.archiveData = buildYearlyArchiveData(state.validRecords);
+    state.rangeCache = new Map();
+    renderAll();
+    document.getElementById("productClassificationMessage").textContent = saved
+      ? "排除設定已保存。只更新品名分組，原始事件與工時計算不變；請另匯出 JSON 備份。"
+      : "瀏覽器保存失敗，設定僅在本次畫面生效；請立即匯出 JSON 備份。";
+  }
+
+  function renderProductClassification() {
+    const pairs = state.productClassification.pairs;
+    document.getElementById("productClassificationSummary").textContent = `找到 ${pairs.length} 組精確尾碼配對，${pairs.filter((pair) => pair.enabled).length} 組自動歸類；已保存 ${state.productClassificationExclusions.size} 組人工排除設定。`;
+    document.getElementById("productClassificationTable").innerHTML = pairs.length
+      ? `<table><thead><tr><th>自動歸類</th><th>原始品名（無尾碼）</th><th>統一品名</th><th>原始事件筆數（無尾碼／毛胚）</th><th>狀態</th></tr></thead><tbody>${pairs.map((pair) => `<tr><td><input type="checkbox" aria-label="自動歸類 ${escapeHtml(pair.base)}" data-product-base="${escapeHtml(pair.base)}" ${pair.enabled ? "checked" : ""} ${pair.ambiguous ? "disabled" : ""} /></td><td>${escapeHtml(pair.base)}</td><td>${escapeHtml(pair.canonical)}</td><td>${pair.baseCount} / ${pair.canonicalCount}</td><td>${pair.ambiguous ? "多重尾碼配對，待確認，不自動歸類" : pair.excluded ? "人工排除，保留各自名稱" : "自動歸類"}</td></tr>`).join("")}</tbody></table>`
+      : "目前沒有同時出現有／無 -毛胚的精確名稱配對。";
   }
 
   function mapRowToRecord(row, index) {
@@ -1534,6 +1623,7 @@ DW-810｜CNC線割機
 
     return Array.from(grouped.entries())
       .map(([workOrderNo, group]) => buildWorkOrder(workOrderNo, group))
+      .map(applyProductClassification)
       .sort((a, b) => {
         const aTime = a.startedAt ? a.startedAt.getTime() : Number.MAX_SAFE_INTEGER;
         const bTime = b.startedAt ? b.startedAt.getTime() : Number.MAX_SAFE_INTEGER;
@@ -2004,19 +2094,21 @@ DW-810｜CNC線割機
     workOrders
       .filter((order) => isEligibleAverageOrder(order) && order.normalizedProductSpec)
       .forEach((order) => {
-        if (!groups.has(order.normalizedProductSpec)) {
-          groups.set(order.normalizedProductSpec, []);
+        if (!groups.has(getProductGroupKey(order))) {
+          groups.set(getProductGroupKey(order), []);
         }
-        groups.get(order.normalizedProductSpec).push(order);
+        groups.get(getProductGroupKey(order)).push(order);
       });
 
     return Array.from(groups.entries())
-      .map(([normalizedProductSpec, orders]) => {
+      .map(([productGroupKey, orders]) => {
+        const normalizedProductSpec = orders[0].normalizedProductSpec;
         const processing = orders.map((item) => item.totalProcessingMs);
         const waiting = orders.map((item) => item.totalWaitingMs);
         const lead = orders.map((item) => item.leadTimeMs);
 
         return {
+          productGroupKey,
           normalizedProductSpec,
           productSpec: orders[0].productSpec || normalizedProductSpec,
           completedCount: orders.length,
@@ -2031,7 +2123,7 @@ DW-810｜CNC線割機
   }
 
   function buildScheduleRows(workOrders, standards) {
-    const standardMap = new Map(standards.map((item) => [item.normalizedProductSpec, item]));
+    const standardMap = new Map(standards.map((item) => [getProductGroupKey(item), item]));
     const partMachineStandardMap = new Map();
     const machineStandardMap = new Map();
 
@@ -2043,7 +2135,7 @@ DW-810｜CNC線割機
             return;
           }
           if (order.normalizedProductSpec && machine.machineKey) {
-            const partMachineKey = `${order.normalizedProductSpec}::${machine.machineKey}`;
+            const partMachineKey = `${getProductGroupKey(order)}::${machine.machineKey}`;
             if (!partMachineStandardMap.has(partMachineKey)) {
               partMachineStandardMap.set(partMachineKey, []);
             }
@@ -2061,9 +2153,9 @@ DW-810｜CNC線割機
     return workOrders
       .filter((order) => !order.completed)
       .map((order) => {
-        const standard = order.normalizedProductSpec ? standardMap.get(order.normalizedProductSpec) : null;
+        const standard = order.normalizedProductSpec ? standardMap.get(getProductGroupKey(order)) : null;
         const primaryMachineKey = (order.machineKeys || [])[0] || "";
-        const partMachineKey = order.normalizedProductSpec && primaryMachineKey ? `${order.normalizedProductSpec}::${primaryMachineKey}` : "";
+        const partMachineKey = order.normalizedProductSpec && primaryMachineKey ? `${getProductGroupKey(order)}::${primaryMachineKey}` : "";
         const partMachineValues = partMachineKey ? partMachineStandardMap.get(partMachineKey) : null;
         const machineValues = primaryMachineKey ? machineStandardMap.get(primaryMachineKey) : null;
         const estimatedProcessingMs = partMachineValues?.length
@@ -2110,14 +2202,15 @@ DW-810｜CNC線割機
       if (!order.normalizedProductSpec) {
         return;
       }
-      if (!groups.has(order.normalizedProductSpec)) {
-        groups.set(order.normalizedProductSpec, []);
+      if (!groups.has(getProductGroupKey(order))) {
+        groups.set(getProductGroupKey(order), []);
       }
-      groups.get(order.normalizedProductSpec).push(order);
+      groups.get(getProductGroupKey(order)).push(order);
     });
 
     return Array.from(groups.entries())
-      .map(([normalizedProductSpec, orders]) => {
+      .map(([productGroupKey, orders]) => {
+        const normalizedProductSpec = orders[0].normalizedProductSpec;
         const sortedOrders = [...orders].sort((a, b) => {
           const aTime = a.startedAt ? a.startedAt.getTime() : Number.MAX_SAFE_INTEGER;
           const bTime = b.startedAt ? b.startedAt.getTime() : Number.MAX_SAFE_INTEGER;
@@ -2127,6 +2220,7 @@ DW-810｜CNC線割機
         const quantitySummary = summarizeOrderQuantities(sortedOrders);
 
         return {
+          productGroupKey,
           normalizedProductSpec,
           productSpec: sortedOrders[0].productSpec || normalizedProductSpec,
           orderCount: sortedOrders.length,
@@ -2152,16 +2246,17 @@ DW-810｜CNC線割機
       if (!order.normalizedProductSpec) {
         return;
       }
-      if (!groups.has(order.normalizedProductSpec)) {
-        groups.set(order.normalizedProductSpec, []);
+      if (!groups.has(getProductGroupKey(order))) {
+        groups.set(getProductGroupKey(order), []);
       }
-      groups.get(order.normalizedProductSpec).push(order);
+      groups.get(getProductGroupKey(order)).push(order);
     });
 
     const keyword = normalizeSearchText(searchTerm);
 
     return Array.from(groups.entries())
-      .map(([normalizedProductSpec, orders]) => {
+      .map(([productGroupKey, orders]) => {
+        const normalizedProductSpec = orders[0].normalizedProductSpec;
         const sortedOrders = [...orders].sort((a, b) => {
           const aTime = a.startedAt ? a.startedAt.getTime() : Number.MAX_SAFE_INTEGER;
           const bTime = b.startedAt ? b.startedAt.getTime() : Number.MAX_SAFE_INTEGER;
@@ -2495,6 +2590,7 @@ DW-810｜CNC線割機
         );
 
         return {
+          productGroupKey,
           normalizedProductSpec,
           productSpec: sortedOrders[0] && sortedOrders[0].productSpec ? sortedOrders[0].productSpec : normalizedProductSpec,
           orderCount: sortedOrders.length,
@@ -2937,12 +3033,14 @@ DW-810｜CNC線割機
 
     (workOrders || []).forEach((order) => {
       const normalizedProductSpec = cleanString(order.normalizedProductSpec);
+      const productGroupKey = getProductGroupKey(order);
       if (!normalizedProductSpec) {
         return;
       }
 
-      if (!productMap.has(normalizedProductSpec)) {
-        productMap.set(normalizedProductSpec, {
+      if (!productMap.has(productGroupKey)) {
+        productMap.set(productGroupKey, {
+          productGroupKey,
           normalizedProductSpec,
           productSpec: order.productSpec || normalizedProductSpec,
           originalSpecs: new Set(),
@@ -2951,9 +3049,9 @@ DW-810｜CNC線割機
         });
       }
 
-      const target = productMap.get(normalizedProductSpec);
+      const target = productMap.get(productGroupKey);
       if (order.productSpec) {
-        target.originalSpecs.add(order.productSpec);
+        (order.originalProductSpecs || [order.productSpec]).forEach((name) => target.originalSpecs.add(name));
       }
       target.orderSet.add(order.workOrderNo);
 
@@ -3694,6 +3792,7 @@ DW-810｜CNC線割機
     renderSummary(view, scoped);
     renderInvalidRecordsSection();
     renderRawReportingSection();
+    renderProductClassification();
     renderHistoricalSetupSection();
     renderArchiveSection(scoped);
     renderMessage();
@@ -6745,7 +6844,7 @@ DW-810｜CNC線割機
   }
 
   function groupByPartNo(order) {
-    return cleanString(order.requiredItem) || cleanString(order.parentItemNo) || cleanString(order.normalizedProductSpec) || cleanString(order.productSpec);
+    return cleanString(order.requiredItem) || cleanString(order.parentItemNo) || getProductGroupKey(order) || cleanString(order.productSpec);
   }
 
   function calculatePartSummary(workOrders) {
@@ -6760,7 +6859,7 @@ DW-810｜CNC線割機
         }
         if (!groups.has(key)) {
           groups.set(key, {
-            partNo: key,
+            partNo: order.productGroupKey && !order.requiredItem && !order.parentItemNo ? order.productSpec : key,
             productSpec: order.productSpec || order.normalizedProductSpec || key,
             totalQuantity: 0,
             occurrenceCount: 0,
@@ -7034,6 +7133,7 @@ DW-810｜CNC線割機
     const workOrderSheet = scoped.workOrders.map((order) => ({
       製令單號: order.workOrderNo,
       品名規格: order.productSpec || "",
+      原始品名規格: (order.originalProductSpecs || [order.productSpec]).filter(Boolean).join("；"),
       母件編號: order.parentItemNo || "",
       需求料件: order.requiredItem || "",
       生產數量: displayValue(order.quantity),
