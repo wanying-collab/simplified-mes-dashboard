@@ -8,6 +8,7 @@ const rows = X.utils.sheet_to_json(book.Sheets[book.SheetNames[0]],{defval:''});
 const plain = x => JSON.parse(JSON.stringify(x));
 const fmt = ms => {const n=Math.round(ms/1000);return [Math.floor(n/3600),String(Math.floor(n/60)%60).padStart(2,'0'),String(n%60).padStart(2,'0')].join(':');};
 const before=load(pages.classificationRelease().get('assets/simple-mes.js').toString());
+const strict=load(require('../scripts/production-pairing.cjs').promote(pages.ROOT,pages.classificationRelease(),true).get('assets/simple-mes.js').toString());
 const after=load(pages.productionRelease().get('assets/simple-mes.js').toString(),undefined,{excelSource:fs.readFileSync(excel,'utf8'),captureExport:true});
 function breakAdjusted(start,end) {
   let ms=end-start;
@@ -22,19 +23,20 @@ function breakAdjusted(start,end) {
 // Independent ledger: partition BEFORE sorting, then match adjacent machine actions.
 function reference(records){
   const machines=Map.groupBy(records,r=>r.machineId), segments=[];
-  for(const events of machines.values()){
-    events.sort((a,b)=>a.recordedAt-b.recordedAt);
+  for(const machine of machines.values()){
+    const opening=r=>['Start','Resume'].includes(r.actionStatus);
+    const events=machine.sort((a,b)=>a.recordedAt-b.recordedAt).filter((r,i,a)=>!i || !(opening(r)&&opening(a[i-1])&&+r.recordedAt===+a[i-1].recordedAt));
     for(let j=1;j<events.length;j++){
-      const a=events[j-1], b=events[j], prev=events[j-2];
+      const a=events[j-1], b=events[j];
       if (!['Pause','End'].includes(b.actionStatus) || b.recordedAt<=a.recordedAt) continue;
-      if(a.actionStatus!=='Start' && !(a.actionStatus==='Resume' && prev?.actionStatus==='Pause')) continue;
+      if(!opening(a)) continue;
       segments.push({machine:a.machineId,from:a.id,to:b.id,ms:breakAdjusted(a.recordedAt,b.recordedAt)});
     }
   }
   return segments;
 }
 (async()=>{
-  for(const m of [before,after]) m.analyzeRows(structuredClone(rows),'audit');
+  for(const m of [before,strict,after]) m.analyzeRows(structuredClone(rows),'audit');
   assert.deepEqual(plain(after.state.rawRows),rows);
   assert.deepEqual(plain(after.buildRawReportingSheet(rows)),plain(before.buildRawReportingSheet(rows)));
   const olds=before.buildWorkOrders(before.state.validRecords), orders=after.buildWorkOrders(after.state.validRecords);
@@ -57,7 +59,6 @@ function reference(records){
       if(s.isOpen) reason='舊版推算未關閉區段';
       else if(!start || !rec.some(r=>r.id===start.id) || ends.every(r=>!rec.some(n=>n.id===r.id))) reason='起訖資料不完整或已停用';
       else if(!ends.some(r=>r.machineId===s.machineId)) reason='舊版跨機台關閉';
-      else if(s.startStatus==='Resume' && !after.state.machineEventAudit.resumeIds.has(start.id)) reason='Resume 缺少同機台前序';
       else if(rec.some(r=>r.machineId===s.machineId&&r.recordedAt>s.startAt&&r.recordedAt<s.endAt)) reason='同機台區段內另有啟停事件';
       else unresolved.push({orderNo,segment:s});
       if(reason) tap(reason,-s.processingMs);removed+=s.processingMs;
@@ -71,7 +72,23 @@ function reference(records){
   const summary=(m,orders)=>({raw:m.state.rawRows.length,valid:m.state.validRecords.length,invalid:m.state.invalidRecords.length,orders:orders.length,
     work:fmt(orders.reduce((s,o)=>s+o.totalProcessingMs,0)),wait:fmt(orders.reduce((s,o)=>s+o.totalWaitingMs,0)),completed:orders.filter(o=>o.completed).length,
     samples:m.buildStandards(orders).reduce((s,g)=>s+g.completedCount,0),missed:orders.reduce((s,o)=>s+o.missedPauseWarnings.length,0)});
-  const result={before:summary(before,olds),after:summary(after,orders),reasons,unresolved,changes};
+  const strictOrders=strict.buildWorkOrders(strict.state.validRecords);
+  let recovered=0,recoveredMs=0;
+  for(const old of strictOrders){
+    const next=newMap.get(old.workOrderNo);
+    const actual=new Set(next.stations.filter(s=>s.endAt).map(key));
+    const prior=new Set(old.stations.filter(s=>s.endAt).map(key));
+    for(const k of prior) assert.ok(actual.has(k),'Previously counted segment lost: '+old.workOrderNo);
+    let delta=0;
+    for(const s of next.stations.filter(s=>s.endAt && !prior.has(key(s)))){
+      assert.equal(s.startStatus,'Resume');
+      assert.ok(old.unpairedSegments.some(r=>r.startRecordId===s.startRecordId&&r.endRecordId===s.endRecordId),'Unexpected added segment: '+old.workOrderNo);
+      delta+=s.processingMs; recovered++;
+    }
+    assert.equal(delta,next.totalProcessingMs-old.totalProcessingMs,old.workOrderNo);
+    recoveredMs+=delta;
+  }
+  const result={before:summary(before,olds),deployed:summary(strict,strictOrders),after:summary(after,orders),recovered,recoveredTime:fmt(recoveredMs),reasons,unresolved,changes};
   if(out)fs.writeFileSync(out,JSON.stringify(result,null,2));
   assert.equal(unresolved.length,0,'Unexplained historical segments: stop deployment');
   for(const year of after.state.archiveData.archiveSummary){assert.equal(year.workOrderCount,orders.filter(o=>o.completed&&String(o.archiveYear)===String(year.year)).length);}

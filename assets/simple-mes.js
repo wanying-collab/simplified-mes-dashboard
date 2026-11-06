@@ -1357,7 +1357,6 @@ DW-810｜CNC線割機
     state.latestOperatorRecords = buildLatestOperatorRecords(prepared);
     state.validRecords = validRecords;
     state.invalidRecords = invalidRecords;
-    state.machineEventAudit = buildMachineEventAudit(validRecords);
     state.archiveData = buildYearlyArchiveData(validRecords);
     const archiveYears = state.archiveData.archiveSummary.map((item) => String(item.year));
     state.selectedArchiveYear = archiveYears.includes(state.selectedArchiveYear) ? state.selectedArchiveYear : archiveYears[0] || "";
@@ -1638,15 +1637,12 @@ DW-810｜CNC線割機
   function buildWorkOrder(workOrderNo, group) {
     const records = [...group].sort((a, b) => a.recordedAt - b.recordedAt);
     const firstRecord = records.find((item) => item.productSpec || item.machineName || item.machineId) || records[0];
-    const pairing = pairWorkOrderMachineEvents(records, state.machineEventAudit?.resumeIds);
+    const pairing = pairWorkOrderMachineEvents(records);
     const endRecords = pairing.validEnds;
     const firstStartRecord = records.find((record) => record.actionStatus === "Start" || record.actionStatus === "Resume") || null;
     const firstEndRecord = endRecords[0] || null;
     const latestEndRecord = endRecords.length ? endRecords[endRecords.length - 1] : null;
     const { stations, anomalies, notes, duplicateEndRecords, proxyEndInfos } = pairing;
-    for (const record of records) {
-      for (const reason of state.machineEventAudit?.issues.get(record.id) || []) anomalies.push(reason);
-    }
     const proxyEndInfo = proxyEndInfos[0] || null;
     const lastStatusSeen = records.length ? records[records.length - 1].actionStatus : "";
 
@@ -1786,148 +1782,81 @@ DW-810｜CNC線割機
     };
   }
 
-  function pairWorkOrderMachineEvents(records, knownResumeIds = null) {
-    const machines = new Map();
-    const stations = [];
-    const anomalies = [];
-    const notes = [];
-    const eventIssues = [];
-    const unpairedSegments = [];
-    const duplicateEndRecords = [];
-    const proxyEndInfos = [];
-    const validEnds = [];
-    const resumeIds = [];
-    function flag(record, reason, relatedRecordId = "") {
-      const machine = cleanString(record.machineId) || "未填機台";
-      anomalies.push(`${machine}：${reason}`);
-      eventIssues.push({ recordId: record.id, relatedRecordId, machineId: record.machineId, recordedAt: record.recordedAt, reason });
+  function pairWorkOrderMachineEvents(records) {
+    const machines = new Map(), stations = [], anomalies = [], notes = [], eventIssues = [];
+    const unpairedSegments = [], validEnds = [], duplicateEndRecords = [], proxyEndInfos = [];
+    let latestClose = null, openings = 0, lastEndOpening = -1;
+    function warn(record, reason) {
+      anomalies.push(record.machineId + "：" + reason);
+      eventIssues.push({ recordId: record.id, machineId: record.machineId, recordedAt: record.recordedAt, reason });
     }
     for (const record of records) {
-      const key = cleanString(record.machineId);
-      if (!key) {
-        flag(record, "缺少機台編號，無法進行同機台配對");
-        continue;
-      }
-      if (!machines.has(key)) machines.set(key, { active: null, lastPause: null, ended: false, startCount: 0, machineName: "" });
+      const key = record.machineId, action = record.actionStatus;
+      if (!key) { warn(record, "缺少設備編號，不配對工時"); continue; }
+      if (!machines.has(key)) machines.set(key, { open: null, close: null, name: record.machineName, starts: 0 });
       const machine = machines.get(key);
-      machine.machineName = machine.machineName || record.machineName;
-      if (record.actionStatus === "Start") machine.startCount += 1;
-      if (record.actionStatus === "Start" || record.actionStatus === "Resume") {
-        const unverifiedResume = record.actionStatus === "Resume" && !machine.lastPause && !knownResumeIds?.has(record.id);
-        if (record.actionStatus === "Resume" && !unverifiedResume) resumeIds.push(record.id);
-        if (unverifiedResume && !machine.active) flag(record, "疑似漏刷：Resume 找不到同製令單、同機台的前一筆 Pause");
-        if (machine.active) {
-          const prior = machine.active;
-          const reason = record.actionStatus === "Resume" ? "Resume 前缺少同機台 Pause" : "Start 前已有同機台未完成加工段";
-          flag(record, reason, prior.startRecordId);
-          unpairedSegments.push({ ...prior, observedUntilAt: record.recordedAt, reason: "缺少同機台 Pause / End，未封閉區間不計加工工時" });
-          eventIssues.push({ recordId: prior.startRecordId, relatedRecordId: record.id, machineId: key, recordedAt: prior.startAt, reason: "缺少同機台 Pause / End，未封閉區間不計加工工時" });
+      machine.name = machine.name || record.machineName;
+      if (action === "Start" || action === "Resume") {
+        if (machine.open) {
+          warn(record, action + " 前已有同機台未關閉加工段，疑似重複掃描／缺少 Pause");
+          if (+machine.open.startAt === +record.recordedAt) continue;
+          // Never charge the gap for the missing closure; retain the newer observed opening.
+          unpairedSegments.push({ ...machine.open, reason: "缺少 Pause / End" });
         }
-        machine.active = { ...createStation(0, record), startRecordId: record.id, unverifiedResume };
-        machine.lastPause = null;
-        machine.ended = false;
+        if (action === "Start") machine.starts++;
+        openings++;
+        machine.open = { ...createStation(0, record), startRecordId: record.id };
         continue;
       }
-      if (record.actionStatus !== "Pause" && record.actionStatus !== "End") continue;
-      if (machine.active) {
-        const station = machine.active;
+      if (action !== "Pause" && action !== "End") continue;
+      const station = machine.open;
+      if (station) {
+        machine.open = null;
         if (record.recordedAt <= station.startAt) {
-          flag(record, `${record.actionStatus} 時間不晚於同機台 Start / Resume`, station.startRecordId);
-          machine.active = null;
-          continue;
-        }
-        station.machineName = station.machineName || record.machineName;
-        station.endOperator = record.operator;
-        station.endRecordId = record.id;
-        station.endStatus = record.actionStatus;
-        station.endAt = record.recordedAt;
-        station.processingMs = resolveProcessingDuration(station.startAt, station.endAt, record.currentWorkHours);
-        station.missedPauseWarning = resolveMissedPauseWarning(station);
-        if (station.unverifiedResume) {
-          unpairedSegments.push({ ...station, processingMs: 0, reason: "Resume 缺少前序，未採計此段工時" });
+          warn(record, action + " 時間不晚於同機台加工起點，不採計工時");
+          unpairedSegments.push(station);
         } else {
+          station.endAt = record.recordedAt;
+          station.endStatus = action;
+          station.endRecordId = record.id;
+          station.endOperator = record.operator;
+          station.processingMs = resolveProcessingDuration(station.startAt, station.endAt, record.currentWorkHours);
+          station.missedPauseWarning = resolveMissedPauseWarning(station);
           stations.push(station);
-          if (record.actionStatus === "End") validEnds.push(record);
+          machine.close = latestClose = record;
         }
-        machine.active = null;
-        machine.lastPause = record.actionStatus === "Pause" ? record : null;
-        machine.pairedPause = !station.unverifiedResume;
-        machine.ended = record.actionStatus === "End";
-      } else if (record.actionStatus === "End" && machine.lastPause && machine.pairedPause) {
-        validEnds.push(record);
-        const pause = machine.lastPause;
-        proxyEndInfos.push({
-          machineId: key, machineName: record.machineName || pause.machineName,
-          pauseOperator: cleanString(pause.operator), endOperator: cleanString(record.operator),
-          pauseAt: pause.recordedAt, endAt: record.recordedAt, recordId: record.id,
-          sameUser: cleanString(pause.operator) === cleanString(record.operator),
-        });
-        notes.push(`${key}：同機台 Pause 後補按 End，工時計至 Pause`);
-        machine.lastPause = null;
-        machine.ended = true;
-      } else if (record.actionStatus === "End" && machine.ended) {
+      } else if (action === "Pause") {
+        warn(record, machine.close?.actionStatus === "Pause" ? "連續 Pause，沒有新的加工起點" : "Pause 找不到同機台 Start / Resume");
+      } else if (lastEndOpening === openings) {
         duplicateEndRecords.push(record);
-        notes.push(`${key}：重複 End（不納入計算）：${formatDateTime(record.recordedAt)}`);
+        notes.push(key + "：重複 End（不納入計算）");
+        continue;
+      } else if (latestClose) {
+        const prior = machine.close || latestClose;
+        proxyEndInfos.push({ machineId: key, machineName: record.machineName, recordId: record.id,
+          pauseOperator: prior.operator, endOperator: record.operator, pauseAt: prior.recordedAt,
+          endAt: record.recordedAt, sameUser: prior.operator === record.operator });
+        notes.push(key + "：補按製令單 End，不增加加工工時");
       } else {
-        flag(record, `疑似漏刷：${machine.lastPause && record.actionStatus === "Pause" ? "連續 Pause；" : ""}${record.actionStatus} 找不到同機台對應的 Start / Resume`);
-        if (record.actionStatus === "Pause" && !machine.lastPause) {
-          // An observed pause anchors a later resume, but does not close invented work.
-          machine.lastPause = record;
-          machine.pairedPause = false;
-        }
-        if (record.actionStatus === "End") machine.lastPause = null;
+        warn(record, "有 End 但沒有本站加工段或先前已封閉加工段；不補算工時");
       }
+      // Legacy order completion is independent of whether this End closes a machine segment.
+      if (action === "End") { validEnds.push(record); lastEndOpening = openings; }
     }
-    machines.forEach((machine, key) => {
-      if (!machine.active) return;
-      const station = machine.active;
-      station.isOpen = true;
-      station.endStatus = "加工中";
-      station.processingMs = 0;
-      stations.push(station);
-      notes.push(`${key}：尚無同機台 Pause / End，不推算未配對加工工時`);
-      eventIssues.push({ recordId: station.startRecordId, machineId: station.machineId, recordedAt: station.startAt, reason: "尚無同機台 Pause / End，不推算加工工時" });
+    for (const [key, machine] of machines) {
+      if (!machine.open) continue;
+      Object.assign(machine.open, { isOpen: true, endStatus: "加工中", processingMs: 0 });
+      stations.push(machine.open);
+      notes.push(key + "：尚無同機台 Pause / End，不推算工時");
+    }
+    stations.sort((a,b) => a.startAt - b.startAt || a.machineId.localeCompare(b.machineId));
+    stations.forEach((s,i) => {
+      s.stationNo = i + 1;
+      s.machineName = machines.get(s.machineId).name;
+      s.machineKey = getMachineKey(s.machineId, s.machineName);
     });
-    // Keep one display name within this order; imported names and global metric keys are unchanged.
-    stations.forEach((station) => {
-      station.machineName = machines.get(cleanString(station.machineId)).machineName;
-      station.machineKey = getMachineKey(station.machineId, station.machineName);
-    });
-    stations.sort((a, b) => a.startAt - b.startAt || a.machineId.localeCompare(b.machineId));
-    stations.forEach((station, index) => { station.stationNo = index + 1; });
-    const maxMachineStartCount = Math.max(0, ...Array.from(machines.values(), (machine) => machine.startCount));
-    return { stations, anomalies, notes, eventIssues, unpairedSegments, duplicateEndRecords, proxyEndInfos, maxMachineStartCount, validEnds, resumeIds };
-  }
-
-  function buildMachineEventAudit(records) {
-    const orders = new Map(), machines = new Map(), issues = new Map(), resumeIds = new Set();
-    for (const r of records) {
-      if (!orders.has(r.workOrderNo)) orders.set(r.workOrderNo, []);
-      orders.get(r.workOrderNo).push(r);
-    }
-    for (const [order, events] of orders) {
-      const paired = pairWorkOrderMachineEvents(events.sort((a,b) => a.recordedAt-b.recordedAt));
-      for (const id of paired.resumeIds) resumeIds.add(id);
-      for (const s of paired.stations) {
-        if (!s.endAt) continue;
-        if (!machines.has(s.machineId)) machines.set(s.machineId, []);
-        machines.get(s.machineId).push({ ...s, order });
-      }
-    }
-    for (const intervals of machines.values()) {
-      let active = [];
-      for (const next of intervals.sort((a,b) => a.startAt-b.startAt)) {
-        active = active.filter(prev => prev.endAt > next.startAt);
-        for (const prev of active.filter(prev => prev.order !== next.order)) {
-          for (const [segment, other] of [[prev,next], [next,prev]]) {
-            if (!issues.has(segment.startRecordId)) issues.set(segment.startRecordId, new Set());
-            issues.get(segment.startRecordId).add(segment.machineId + "：與其他製令單 " + other.order + " 加工時段重疊，待核對");
-          }
-        }
-        active.push(next);
-      }
-    }
-    return { issues, resumeIds };
+    const maxMachineStartCount = Math.max(0, ...Array.from(machines.values(), m => m.starts));
+    return { stations, anomalies, notes, eventIssues, unpairedSegments, validEnds, duplicateEndRecords, proxyEndInfos, maxMachineStartCount };
   }
 
   function createStation(stationNo, record) {
@@ -3189,8 +3118,7 @@ DW-810｜CNC線割機
         info.endOperator,
         composeMachineLabel(info.machineId, info.machineName) || "未填機台"
       );
-      target.hasAnomaly = true;
-      target.notes.add("補按 End（不納入計算）");
+      target.notes.add("補按 End 不增加加工工時");
     });
 
     sortedRecords.forEach((record) => {

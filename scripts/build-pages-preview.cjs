@@ -51,7 +51,8 @@ function previewHtml(source) {
 
 async function verifyLiveProduction(fetchImpl = fetch) {
   const approved = productionRelease();
-  let matching = [approved, classificationRelease(), previousProductionRelease()];
+  const classified = classificationRelease();
+  let matching = [approved, pairing.promote(ROOT, classified, true), classified, previousProductionRelease()];
   for (const name of [...approved.keys()].filter((name) => name !== '.nojekyll')) {
     const response = await fetchImpl(`${SITE_URL}${name}?production-check=${Date.now()}`, { signal: AbortSignal.timeout(30000), cache: 'no-store' });
     if (!response.ok) throw new Error(`Cannot verify production ${name}: HTTP ${response.status}`);
