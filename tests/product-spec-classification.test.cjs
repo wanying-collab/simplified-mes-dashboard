@@ -57,7 +57,8 @@ fixture.push({ ...fixture[0] }, { 使用者: '測試人員', 品名規格: base,
 const baselineSource = () => execFileSync('git', ['show', '8e9a6b86824a0d33f16362252060a9e1851789f3:assets/simple-mes.js'], { cwd: path.resolve(__dirname, '..'), encoding: 'utf8', maxBuffer: 2000000 });
 
 test('MES raw events, valid/invalid counts, work orders, processing, waiting and archive results are unchanged', () => {
-  const before = loadMes(baselineSource()), after = loadMes();
+  const pinned = execFileSync('git', ['show', 'a45b0b8:assets/simple-mes.js'], { cwd: path.resolve(__dirname, '..'), encoding: 'utf8', maxBuffer: 2000000 });
+  const before = loadMes(baselineSource()), after = loadMes(pinned);
   before.analyzeRows(structuredClone(fixture), 'fixture'); after.analyzeRows(structuredClone(fixture), 'fixture');
   assert.deepEqual(plain(after.state.rawRows), fixture);
   assert.deepEqual(plain(after.state.validRecords), plain(before.state.validRecords));

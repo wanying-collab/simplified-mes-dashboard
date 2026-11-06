@@ -36,7 +36,7 @@ jobs:
           node --check assets/product-spec-classification.js
           node --test tests/*.test.cjs
 
-      - name: Verify protected production and stage classification-only release
+      - name: Verify protected production and stage parallel processing release
         run: |
           node scripts/build-pages-preview.cjs --verify-live
           node --check _site/assets/simple-mes.js

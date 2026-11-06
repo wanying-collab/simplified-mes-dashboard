@@ -5,7 +5,7 @@ const api = require('../assets/product-spec-classification.js');
 const loadMes = require('./helpers/mes-harness.cjs');
 const pages = require('../scripts/build-pages-preview.cjs');
 const previous = pages.previousProductionRelease();
-const current = pages.productionRelease();
+const current = pages.classificationRelease();
 const context = { module: { exports: {} } };
 vm.runInNewContext(previous.get('assets/product-spec-classification.js').toString('utf8'), context);
 const oldApi = context.module.exports;

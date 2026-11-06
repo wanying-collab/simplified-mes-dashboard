@@ -3,6 +3,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
 const promotion = require('./production-classification.cjs');
+const pairing = require('./production-pairing.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
 const PRODUCTION_REF = 'e462853041d13dc8a7b0338207228f1bb3be9cd9';
@@ -23,7 +24,8 @@ const STORAGE_KEYS = [
 ];
 const sha256 = (bytes) => crypto.createHash('sha256').update(bytes).digest('hex');
 const baseline = (name) => execFileSync('git', ['show', `${PRODUCTION_REF}:${name}`], { cwd: ROOT, maxBuffer: 16 * 1024 * 1024 });
-const productionRelease = () => promotion.createProductionRelease(ROOT, baseline, PUBLIC_FILES);
+const classificationRelease = () => promotion.createProductionRelease(ROOT, baseline, PUBLIC_FILES);
+const productionRelease = () => pairing.promote(ROOT, classificationRelease());
 const previousProductionRelease = () => promotion.createProductionRelease(ROOT, baseline, PUBLIC_FILES, false);
 
 function previewJavaScript(source) {
@@ -49,16 +51,13 @@ function previewHtml(source) {
 
 async function verifyLiveProduction(fetchImpl = fetch) {
   const approved = productionRelease();
-  const previous = previousProductionRelease();
-  let matchesPrevious = true;
-  let matchesRelease = true;
+  let matching = [approved, classificationRelease(), previousProductionRelease()];
   for (const name of [...approved.keys()].filter((name) => name !== '.nojekyll')) {
     const response = await fetchImpl(`${SITE_URL}${name}?production-check=${Date.now()}`, { signal: AbortSignal.timeout(30000), cache: 'no-store' });
     if (!response.ok) throw new Error(`Cannot verify production ${name}: HTTP ${response.status}`);
     const live = Buffer.from(await response.arrayBuffer());
-    matchesPrevious = matchesPrevious && sha256(live) === sha256(previous.get(name));
-    matchesRelease = matchesRelease && sha256(live) === sha256(approved.get(name));
-    if (!matchesPrevious && !matchesRelease) throw new Error(`Production changed; refusing to overwrite: ${name}`);
+    matching = matching.filter(release => sha256(live) === sha256(release.get(name)));
+    if (!matching.length) throw new Error(`Production changed; refusing to overwrite: ${name}`);
   }
   // Both the application and module must belong to one complete approved release.
 }
@@ -71,7 +70,8 @@ function build(output = path.join(ROOT, '_site')) {
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.writeFileSync(target, bytes);
   };
-  // Production is the pinned baseline plus the reviewed classification-only delta.
+  manifest.productionPromotion = pairing.REVISION;
+  // The preview bundle is never copied over production.
   for (const [name, bytes] of productionRelease()) {
     write(name, bytes);
     manifest.production[name] = sha256(bytes);
@@ -96,4 +96,4 @@ if (require.main === module) {
     }
   })().catch((error) => { console.error(error.message); process.exitCode = 1; });
 }
-module.exports = { ROOT, PRODUCTION_REF, SITE_URL, PREVIEW_PATH, PUBLIC_FILES, PREVIEW_FILES, STORAGE_KEYS, sha256, baseline, productionRelease, previousProductionRelease, previewJavaScript, previewHtml, verifyLiveProduction, build };
+module.exports = { ROOT, PRODUCTION_REF, SITE_URL, PREVIEW_PATH, PUBLIC_FILES, PREVIEW_FILES, STORAGE_KEYS, sha256, baseline, classificationRelease, productionRelease, previousProductionRelease, previewJavaScript, previewHtml, verifyLiveProduction, build };

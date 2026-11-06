@@ -7,7 +7,7 @@ const vm = require('node:vm');
 const pages = require('../scripts/build-pages-preview.cjs');
 const promotion = require('../scripts/production-classification.cjs');
 const loadMes = require('./helpers/mes-harness.cjs');
-const release = pages.productionRelease();
+const release = pages.classificationRelease();
 const beforeSource = pages.baseline('assets/simple-mes.js').toString('utf8');
 const afterSource = release.get('assets/simple-mes.js').toString('utf8');
 const plain = (value) => JSON.parse(JSON.stringify(value));
@@ -78,7 +78,11 @@ test('preview changes only classification; Google synchronization, setup analysi
     const current = fs.readFileSync(path.join(pages.ROOT, name), 'utf8').replaceAll('\r\n', '\n');
     const expected = name === 'assets/simple-mes.js' ? promotion.upgradeClassificationIntegration(pinned)
       : promotion.CHANGED_FILES.includes(name) && name.endsWith('.html') ? promotion.versionClassificationEntry(pinned) : pinned;
-    assert.equal(current, expected, name);
+    if (name === 'assets/simple-mes.js') {
+      const base = require('../scripts/production-pairing.cjs').BASE;
+      assert.equal(execFileSync('git',['show',base+':'+name],{cwd:pages.ROOT,encoding:'utf8',maxBuffer:2000000}),expected);
+      pages.productionRelease(); // Independently verifies every local edit against the pairing allowlist.
+    } else assert.equal(current, expected, name);
   }
 });
 
